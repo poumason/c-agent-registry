@@ -1,7 +1,7 @@
 # Agent Registry
 
-一個讓使用者建立、審核、打包 agent 的內部平台。目前只完成**後端**（FastAPI + PostgreSQL +
-MinIO）；前端（React + Ant Design）尚未開始。
+一個讓使用者建立、審核、打包 agent 的內部平台。後端（FastAPI + PostgreSQL + MinIO）與前端
+（React + Vite + Ant Design）都已可執行。
 
 - 規格與需求：[Claude.md](Claude.md)、[idea.drawio](idea.drawio)
 - 設計細節與決策紀錄：[docs/](docs/)
@@ -28,6 +28,18 @@ uv run uvicorn app.main:app --reload
 
 SSO 是選用的，`.env.example` 裡的 `OIDC_*` 留空就停用；要開的話見
 [docs/sso.md](docs/sso.md)。
+
+## 前端
+
+```bash
+cd frontend
+cp .env.example .env   # VITE_API_BASE_URL 預設指向 http://localhost:8000
+npm install
+npm run dev
+```
+
+打開 `http://localhost:5173`。第一次登入可以用上面的 bootstrap admin 帳密。前端技術選型、
+路由/畫面對應、RWD 設計見 [docs/frontend-plan.md](docs/frontend-plan.md)。
 
 ## pgAdmin（檢查資料庫用）
 

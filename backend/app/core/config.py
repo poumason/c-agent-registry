@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     # fragment. Left unset (no frontend yet) makes /auth/sso/callback return JSON instead.
     frontend_sso_redirect_url: str | None = None
 
+    # Origins allowed to call this API from a browser (the Vite dev server, and later
+    # wherever the built frontend is actually hosted).
+    cors_allow_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
     @property
     def database_url(self) -> str:
         return (

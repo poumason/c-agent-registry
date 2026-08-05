@@ -37,12 +37,20 @@ tests/        # pytest，對應 endpoints 的功能分組（不是逐檔案對�
 何時打包、最多幾個 active 版本）都收斂在 `core/permissions.py`、`core/agent_access.py`、
 `services/*.py`，方便之後前端或其他 client 需要同樣邏輯時直接重用。
 
+## 前端（`frontend/`）
+
+React + TypeScript + Vite + Ant Design v6，透過 `VITE_API_BASE_URL` 打後端的 `/api/v1` REST
+API（純前端 SPA，不是後端渲染）。技術選型細節、目錄結構、路由對應、RWD 設計見
+[frontend-plan.md](frontend-plan.md)。
+
 ## Docker Compose 服務
 
 - `db` — Postgres 16
 - `minio` — 物件儲存（skills 原始檔 + packages 打包後的 zip 兩個 bucket，啟動時自動建立）
 - `pgadmin` — 本機用途，desktop mode（免登入），預先建好連線設定
 - `backend` — 開發用容器（`--reload`），本機開發也可以不進容器直接 `uv run uvicorn`
+
+前端目前是純本機開發（`npm run dev`），還沒有加進 docker-compose。
 
 ## 資料模型與原始 ERD 的差異
 

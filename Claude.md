@@ -40,3 +40,27 @@
    - install.yaml
    - skills/
 4. agent 在建立時可用選擇需要的 skill/mcp，他會被紀錄起來 agent_dependcy
+
+
+
+# 前端開發
+## 登入
+- 進入時預設需要登入(SSO 與 帳號密碼 同時提供)
+
+## 畫面
+- 需注意 RWD
+### 首頁
+- 顯示目前已通過審核的 agent (預設設定為 public)
+- 左側欄位
+  - browse
+  - agent management
+    - my agents
+### my agents
+- 顯示目前已建立的 agents （利用放 list 顯示，需要包含一些資料： name, description, statur(draft/staging/production), version)
+- 點擊 agent 可用看到 agent detail page
+### agent detail page
+- 顯示 agent 基本資料( from agent table)
+- 顯示現有的 version list
+- 點擊 version list 可用看到 version 的細節
+  - version 細節可用設定相關的參數(from agent_version )
+  - 細節還可以選擇 sklls/ mcp 來使用 (from skill/ mcp table)
