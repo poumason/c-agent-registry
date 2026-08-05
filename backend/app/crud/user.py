@@ -1,3 +1,4 @@
+import secrets
 import uuid
 
 from sqlalchemy import select
@@ -54,6 +55,25 @@ async def create_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def get_or_create_by_sso(db: AsyncSession, *, email: str, name: str) -> User:
+    """Looks up a user by email for SSO login; auto-provisions with role=member if new.
+
+    Never touches role/status of an existing user - SSO only authenticates, it doesn't
+    grant permissions.
+    """
+    existing = await get_by_email(db, email)
+    if existing is not None:
+        return existing
+    return await create_user(
+        db,
+        email=email,
+        password=secrets.token_urlsafe(32),
+        name=name,
+        role=UserRole.member,
+        status=UserStatus.active,
+    )
 
 
 async def update_user(

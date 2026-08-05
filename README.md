@@ -38,6 +38,19 @@ uv run uvicorn app.main:app --reload
 - **Per-agent 角色**（`UserAgentRel.role`）：`owner`（建立 agent 的人，唯一，可邀請/移除 editor）／
   `editor`（被邀請的共同編輯者，內容權限與 owner 相同，但不能管理成員）
 
+## 登入方式
+
+- **密碼登入**（`POST /api/v1/auth/login`，OAuth2 password form）：對所有使用者永遠可用，
+  不受 SSO 設定影響——admin 建立的帳號、或 SSO 自動建立的帳號，只要 admin 有幫忙設過密碼
+  都能用這個方式登入。
+- **SSO 登入**（generic OIDC，`GET /api/v1/auth/sso/login`）：導去 `.env` 設定的
+  `OIDC_ISSUER`，走 Authorization Code + PKCE，回來後在 `GET /api/v1/auth/sso/callback`
+  完成。第一次用某個 email 登入會自動建立帳號，角色固定是 `member`（Claude.md 第 3 點），
+  之後同一個 email 再登入就直接對應回同一個使用者，不會覆蓋既有角色。沒設定
+  `FRONTEND_SSO_REDIRECT_URL` 時 callback 會直接回傳 JSON token（跟密碼登入格式一樣），
+  方便在還沒有前端的現在測試；設定了則會 302 帶著 `#access_token=...` 導去該網址。
+  IdP 那邊要註冊 `{BACKEND_BASE_URL}/api/v1/auth/sso/callback` 為允許的 redirect URI。
+
 ## 主要流程（走一遍）
 
 1. 以 admin 登入 → `POST /api/v1/users` 建立 member / reviewer 帳號
@@ -62,7 +75,9 @@ uv run pytest
 
 測試會直接對 `docker compose up -d db minio` 啟動的 Postgres / MinIO 執行（每個測試前後會清空資料表），
 涵蓋：登入與 RBAC、agent 可見性、版本生命週期與 2-active 上限、審核流程與權限、
-skill/mcp 依賴的多型驗證、以及打包 zip 內容的正確性。
+skill/mcp 依賴的多型驗證、打包 zip 內容的正確性，以及 SSO 的 state 簽章/過期/防重放、
+自動建立帳號的角色預設、既有帳號角色不被覆蓋。SSO 測試把實際打 IdP 的部分
+（`app.services.sso.exchange_code`）mock 掉，因為真的走一次 IdP 登入流程沒辦法在 CI 裡穩定重現。
 
 ## 已知的、刻意偏離原始 ERD 的地方
 
