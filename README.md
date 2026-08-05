@@ -13,7 +13,7 @@
 
 ```bash
 cp .env.example .env
-docker compose up -d db minio
+docker compose up -d db minio pgadmin
 
 cd backend
 uv sync
@@ -22,6 +22,10 @@ uv run uvicorn app.main:app --reload
 ```
 
 打開 `http://localhost:8000/docs` 查看互動式 API 文件。
+
+打開 `http://localhost:5050` 直接進入 pgAdmin（本機用途，設定成不需登入），左側會有
+預先建好的 **agent-registry (docker)** 連線，點進去用 `.env` 裡的 `POSTGRES_PASSWORD`
+連線即可直接檢查資料表內容。
 
 第一次啟動時，若資料庫沒有任何 admin，系統會依 `.env` 的
 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` 自動建立第一個管理者帳號
