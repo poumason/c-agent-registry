@@ -37,7 +37,7 @@ async def get_version_or_404(db: AsyncSession, slug: str) -> AgentVersion:
 async def ensure_agent_visible(db: AsyncSession, agent: Agent, user: User) -> None:
     if agent.visibility in (AgentVisibility.public, AgentVisibility.internal):
         return
-    if user.role in (UserRole.admin, UserRole.owner) or agent.created_by == user.id:
+    if user.role == UserRole.admin or agent.created_by == user.id:
         return
     membership = await membership_crud.get_membership(db, user.id, agent.id)
     if membership is None:

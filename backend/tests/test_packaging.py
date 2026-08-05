@@ -11,9 +11,9 @@ from tests.conftest import auth_headers, login, make_user
 
 async def test_approval_generates_downloadable_package(client, db_session):
     await make_user(db_session, email="pm@example.com", role=UserRole.member)
-    await make_user(db_session, email="po@example.com", role=UserRole.owner)
+    reviewer = await make_user(db_session, email="po@example.com", role=UserRole.reviewer)
     member_token = await login(client, "pm@example.com")
-    owner_token = await login(client, "po@example.com")
+    reviewer_token = await login(client, "po@example.com")
 
     resp = await client.post(
         "/api/v1/agents",
@@ -59,7 +59,9 @@ async def test_approval_generates_downloadable_package(client, db_session):
     assert resp.status_code == 201
 
     resp = await client.post(
-        f"/api/v1/versions/{version_slug}/submit", headers=auth_headers(member_token)
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(member_token),
+        json={"reviewer_ids": [str(reviewer.id)]},
     )
     assert resp.status_code == 200
 
@@ -69,7 +71,7 @@ async def test_approval_generates_downloadable_package(client, db_session):
     review_id = resp.json()[0]["id"]
     resp = await client.post(
         f"/api/v1/reviews/{review_id}/decision",
-        headers=auth_headers(owner_token),
+        headers=auth_headers(reviewer_token),
         json={"result": "approved"},
     )
     assert resp.status_code == 200

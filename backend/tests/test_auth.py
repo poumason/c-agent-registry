@@ -36,10 +36,10 @@ async def test_admin_can_create_and_list_users(client, db_session):
     resp = await client.post(
         "/api/v1/users",
         headers=auth_headers(token),
-        json={"email": "new@example.com", "password": "pw123456", "name": "New", "role": "owner"},
+        json={"email": "new@example.com", "password": "pw123456", "name": "New", "role": "reviewer"},
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["role"] == "owner"
+    assert resp.json()["role"] == "reviewer"
 
     resp = await client.get("/api/v1/users", headers=auth_headers(token))
     assert resp.status_code == 200

@@ -7,8 +7,9 @@ from app.models.enums import AssetRole
 
 
 class MemberUpsert(BaseModel):
+    """Invites always grant editor rights - ownership isn't transferable via this endpoint."""
+
     user_id: uuid.UUID
-    role: AssetRole = AssetRole.editor
 
 
 class MemberRead(BaseModel):

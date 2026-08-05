@@ -12,20 +12,31 @@ from app.core.agent_access import (
 from app.core.deps import get_current_user
 from app.crud import agent_version as version_crud
 from app.crud import review as review_crud
+from app.crud import user as user_crud
 from app.db.base import get_db
-from app.models.enums import ReviewResult, UserRole, VersionStatus
+from app.models.enums import ReviewResult, UserRole, UserStatus, VersionStatus
 from app.models.user import User
 from app.schemas.agent_version import AgentVersionRead
-from app.schemas.review import ReviewDecision, ReviewRead
+from app.schemas.review import ReviewDecision, ReviewerCandidate, ReviewRead, SubmitForReview
 from app.services.packaging import generate_package_for_version
-from app.services.reviewers import eligible_reviewer_ids
+from app.services.reviewers import list_reviewer_candidates
 
 router = APIRouter(tags=["reviews"])
+
+
+@router.get("/reviewers", response_model=list[ReviewerCandidate])
+async def list_reviewers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ReviewerCandidate]:
+    candidates = await list_reviewer_candidates(db)
+    return [ReviewerCandidate.model_validate(u) for u in candidates]
 
 
 @router.post("/versions/{version_slug}/submit", response_model=AgentVersionRead)
 async def submit_version(
     version_slug: str,
+    payload: SubmitForReview,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AgentVersionRead:
@@ -37,12 +48,23 @@ async def submit_version(
             status_code=status.HTTP_409_CONFLICT, detail="Only draft versions can be submitted"
         )
 
-    reviewer_ids = await eligible_reviewer_ids(db, agent, exclude_user_id=current_user.id)
-    if not reviewer_ids:
+    reviewer_ids = set(payload.reviewer_ids)
+    if current_user.id in reviewer_ids:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No eligible reviewers found for this agent",
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign yourself as reviewer"
         )
+    for reviewer_id in reviewer_ids:
+        reviewer = await user_crud.get_by_id(db, reviewer_id)
+        if (
+            reviewer is None
+            or reviewer.status != UserStatus.active
+            or reviewer.role not in (UserRole.reviewer, UserRole.admin)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{reviewer_id} is not an eligible reviewer",
+            )
+
     for reviewer_id in reviewer_ids:
         await review_crud.create_review(
             db, agent_slug=agent_version.slug, reviewer_id=reviewer_id

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import ReviewResult
 
@@ -22,3 +22,15 @@ class ReviewRead(BaseModel):
 
 class ReviewDecision(BaseModel):
     result: Literal[ReviewResult.approved, ReviewResult.rejected]
+
+
+class SubmitForReview(BaseModel):
+    reviewer_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+class ReviewerCandidate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    email: str

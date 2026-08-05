@@ -25,18 +25,6 @@ async def list_members(db: AsyncSession, agent_id: uuid.UUID) -> list[UserAgentR
     return list(result.scalars().all())
 
 
-async def list_reviewer_eligible_members(
-    db: AsyncSession, agent_id: uuid.UUID
-) -> list[UserAgentRel]:
-    result = await db.execute(
-        select(UserAgentRel).where(
-            UserAgentRel.agent_id == agent_id,
-            UserAgentRel.role.in_([AssetRole.admin, AssetRole.reviewer]),
-        )
-    )
-    return list(result.scalars().all())
-
-
 async def upsert_membership(
     db: AsyncSession, *, user_id: uuid.UUID, agent_id: uuid.UUID, role: AssetRole
 ) -> UserAgentRel:

@@ -94,13 +94,17 @@ async def test_dependency_polymorphic_skill_and_mcp(client, db_session):
 
 async def test_dependencies_locked_after_submit(client, db_session):
     await make_user(db_session, email="dm3@example.com", role=UserRole.member)
-    await make_user(db_session, email="revd3@example.com", role=UserRole.owner)
+    reviewer = await make_user(
+        db_session, email="revd3@example.com", role=UserRole.reviewer
+    )
     token = await login(client, "dm3@example.com")
     version_slug = await _create_agent_and_draft_version(client, token, "agent-d3")
 
     skill = await _upload_skill(client, token, "skill-locked")
     await client.post(
-        f"/api/v1/versions/{version_slug}/submit", headers=auth_headers(token)
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(token),
+        json={"reviewer_ids": [str(reviewer.id)]},
     )
 
     resp = await client.post(

@@ -38,9 +38,9 @@ async def create_agent(
         visibility=payload.visibility,
         created_by=current_user.id,
     )
-    # Creator gets per-agent admin rights so they can manage versions/members immediately.
+    # Creator becomes this agent's owner.
     await membership_crud.upsert_membership(
-        db, user_id=current_user.id, agent_id=agent.id, role=AssetRole.admin
+        db, user_id=current_user.id, agent_id=agent.id, role=AssetRole.owner
     )
     return AgentRead.model_validate(agent)
 
@@ -94,7 +94,7 @@ async def upsert_member(
     agent = await get_agent_or_404(db, slug)
     await ensure_can_administer(db, agent, current_user)
     updated = await membership_crud.upsert_membership(
-        db, user_id=payload.user_id, agent_id=agent.id, role=payload.role
+        db, user_id=payload.user_id, agent_id=agent.id, role=AssetRole.editor
     )
     return MemberRead.model_validate(updated)
 
@@ -111,4 +111,8 @@ async def remove_member(
     target = await membership_crud.get_membership(db, user_id, agent.id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    if target.role == AssetRole.owner:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cannot remove the agent's owner"
+        )
     await membership_crud.remove_membership(db, target)

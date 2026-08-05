@@ -31,19 +31,27 @@ uv run uvicorn app.main:app --reload
 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` 自動建立第一個管理者帳號
 （預設 `admin@example.com` / `change-me-admin`，正式環境請務必更改）。
 
+## 角色模型
+
+- **系統角色**（`User.role`）：`admin`（系統管理）／`reviewer`（可被指定為審核者）／`member`（預設，
+  三者在 agent 內容管理上權限相同：建立/修改 agent、建版本、邀請共同編輯者）
+- **Per-agent 角色**（`UserAgentRel.role`）：`owner`（建立 agent 的人，唯一，可邀請/移除 editor）／
+  `editor`（被邀請的共同編輯者，內容權限與 owner 相同，但不能管理成員）
+
 ## 主要流程（走一遍）
 
-1. 以 admin 登入 → `POST /api/v1/users` 建立 owner / member 帳號
-2. member 登入 → `POST /api/v1/agents` 建立 agent（建立者自動取得該 agent 的 `admin` 權限）
-3. `POST /api/v1/agents/{slug}/versions` 建立草稿版本
-4. （可選）`POST /api/v1/skills`、`POST /api/v1/mcps` 建立可重用的 skill / mcp，再用
+1. 以 admin 登入 → `POST /api/v1/users` 建立 member / reviewer 帳號
+2. member 登入 → `POST /api/v1/agents` 建立 agent（建立者自動成為該 agent 的 `owner`）
+3. （可選）`POST /api/v1/agents/{slug}/members` 邀請其他 member 成為 `editor`
+4. `POST /api/v1/agents/{slug}/versions` 建立草稿版本
+5. （可選）`POST /api/v1/skills`、`POST /api/v1/mcps` 建立可重用的 skill / mcp，再用
    `POST /api/v1/versions/{version_slug}/dependencies` 掛到版本上
-5. `POST /api/v1/versions/{version_slug}/submit` 提交審核 —
-   系統會依「系統角色為 owner/admin」與「該 agent 的 admin/reviewer 成員」名單寫入 `reviews`
-6. 審核者以 `GET /api/v1/reviews/mine` 查看待審、`POST /api/v1/reviews/{review_id}/decision` 核准或退回
-7. 核准後系統自動打包 `agent_card.json` + `install.yaml` + `skills/` 為 zip 上傳到 MinIO，
+6. `GET /api/v1/reviewers` 查詢可被指定的審核者（系統角色為 `reviewer`/`admin` 的使用者），
+   `POST /api/v1/versions/{version_slug}/submit` 提交審核時帶上 `{"reviewer_ids": [...]}` 指定審核者
+7. 審核者以 `GET /api/v1/reviews/mine` 查看待審、`POST /api/v1/reviews/{review_id}/decision` 核准或退回
+8. 核准後系統自動打包 `agent_card.json` + `install.yaml` + `skills/` 為 zip 上傳到 MinIO，
    `GET /api/v1/versions/{version_slug}/download` 取得預簽名下載連結
-8. `POST /api/v1/versions/{version_slug}/activate` 啟用版本（同一 agent 最多 2 個 active 版本）
+9. `POST /api/v1/versions/{version_slug}/activate` 啟用版本（同一 agent 最多 2 個 active 版本）
 
 ## 測試
 

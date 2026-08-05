@@ -3,7 +3,7 @@ import enum
 
 class UserRole(str, enum.Enum):
     admin = "admin"
-    owner = "owner"
+    reviewer = "reviewer"
     member = "member"
 
 
@@ -19,11 +19,14 @@ class AgentVisibility(str, enum.Enum):
 
 
 class AssetRole(str, enum.Enum):
-    """Per-agent role granted via User_Agent_Rel (the diagram's Asset_Role)."""
+    """Per-agent role granted via User_Agent_Rel (the diagram's Asset_Role).
 
-    admin = "admin"
+    owner = the agent's creator (exactly one per agent, invites/removes editors).
+    editor = an invited co-maintainer with equal content permissions.
+    """
+
+    owner = "owner"
     editor = "editor"
-    reviewer = "reviewer"
 
 
 class VersionStatus(str, enum.Enum):
