@@ -1,0 +1,119 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.agent_access import (
+    ensure_agent_visible,
+    ensure_can_manage,
+    get_agent_by_id_or_404,
+    get_version_or_404,
+)
+from app.core.deps import get_current_user
+from app.crud import agent_version as version_crud
+from app.crud import review as review_crud
+from app.db.base import get_db
+from app.models.enums import ReviewResult, UserRole, VersionStatus
+from app.models.user import User
+from app.schemas.agent_version import AgentVersionRead
+from app.schemas.review import ReviewDecision, ReviewRead
+from app.services.packaging import generate_package_for_version
+from app.services.reviewers import eligible_reviewer_ids
+
+router = APIRouter(tags=["reviews"])
+
+
+@router.post("/versions/{version_slug}/submit", response_model=AgentVersionRead)
+async def submit_version(
+    version_slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentVersionRead:
+    agent_version = await get_version_or_404(db, version_slug)
+    agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
+    await ensure_can_manage(db, agent, current_user)
+    if agent_version.status != VersionStatus.draft:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Only draft versions can be submitted"
+        )
+
+    reviewer_ids = await eligible_reviewer_ids(db, agent, exclude_user_id=current_user.id)
+    if not reviewer_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No eligible reviewers found for this agent",
+        )
+    for reviewer_id in reviewer_ids:
+        await review_crud.create_review(
+            db, agent_slug=agent_version.slug, reviewer_id=reviewer_id
+        )
+
+    agent_version.status = VersionStatus.in_review
+    agent_version.updated_by = current_user.id
+    agent_version = await version_crud.save(db, agent_version)
+    return AgentVersionRead.model_validate(agent_version)
+
+
+@router.get("/versions/{version_slug}/reviews", response_model=list[ReviewRead])
+async def list_version_reviews(
+    version_slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ReviewRead]:
+    agent_version = await get_version_or_404(db, version_slug)
+    agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
+    await ensure_agent_visible(db, agent, current_user)
+    reviews = await review_crud.list_by_version(db, agent_version.slug)
+    return [ReviewRead.model_validate(r) for r in reviews]
+
+
+@router.get("/reviews/mine", response_model=list[ReviewRead])
+async def my_reviews(
+    pending_only: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ReviewRead]:
+    reviews = await review_crud.list_mine(db, current_user.id, pending_only=pending_only)
+    return [ReviewRead.model_validate(r) for r in reviews]
+
+
+@router.post("/reviews/{review_id}/decision", response_model=ReviewRead)
+async def decide_review(
+    review_id: uuid.UUID,
+    payload: ReviewDecision,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReviewRead:
+    review = await review_crud.get_by_id(db, review_id)
+    if review is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found")
+    if review.reviewer_id != current_user.id and current_user.role != UserRole.admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your review")
+    if review.result != ReviewResult.pending:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Review already decided"
+        )
+
+    agent_version = await get_version_or_404(db, review.agent_slug)
+    if agent_version.status != VersionStatus.in_review:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Version is no longer awaiting review",
+        )
+
+    review.result = payload.result
+    review.signoff_by = current_user.id
+    review = await review_crud.save(db, review)
+
+    agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
+    if payload.result == ReviewResult.approved:
+        agent_version.status = VersionStatus.approved
+        agent_version.updated_by = current_user.id
+        await version_crud.save(db, agent_version)
+        await generate_package_for_version(db, agent=agent, agent_version=agent_version)
+    else:
+        agent_version.status = VersionStatus.rejected
+        agent_version.updated_by = current_user.id
+        await version_crud.save(db, agent_version)
+
+    return ReviewRead.model_validate(review)
