@@ -12,4 +12,4 @@
 | 0004 | [`4de2f45`](0004-add-sso-login.md) | 2026-08-05 | 加入通用 OIDC SSO 登入 |
 | 0005 | [`49bce26`](0005-split-docs-from-readme.md) | 2026-08-05 | 把設計文件從 README 拆到 docs/ |
 | 0006 | [`5661116`](0006-agent-card-erd-sync.md) | 2026-08-05 | ERD 圖同步角色改版後的欄位命名 |
-| 0007 | [`(見 commit)`](0007-add-frontend.md) | 2026-08-05 | 前端從零建置（React + Vite + Ant Design） |
+| 0007 | [`4df2258`](0007-add-frontend.md) | 2026-08-05 | 前端從零建置（React + Vite + Ant Design） |
