@@ -13,4 +13,4 @@
 | 0005 | [`49bce26`](0005-split-docs-from-readme.md) | 2026-08-05 | 把設計文件從 README 拆到 docs/ |
 | 0006 | [`5661116`](0006-agent-card-erd-sync.md) | 2026-08-05 | ERD 圖同步角色改版後的欄位命名 |
 | 0007 | [`4df2258`](0007-add-frontend.md) | 2026-08-05 | 前端從零建置（React + Vite + Ant Design） |
-| 0008 | 見本次 commit | 2026-08-06 | 補齊使用者/agent 權限落差：軟刪除、agent 編輯、送審 fallback、打包路徑、角色調整 UI |
+| 0008 | [`f3a1179`](0008-close-permission-gaps.md) | 2026-08-06 | 補齊使用者/agent 權限落差：軟刪除、agent 編輯、送審 fallback、打包路徑、角色調整 UI |
