@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import can_administer_agent, can_manage_agent
 from app.crud import agent as agent_crud
 from app.crud import agent_version as version_crud
+from app.crud import review as review_crud
 from app.crud import user_agent_rel as membership_crud
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
@@ -40,8 +41,13 @@ async def ensure_agent_visible(db: AsyncSession, agent: Agent, user: User) -> No
     if user.role == UserRole.admin or agent.created_by == user.id:
         return
     membership = await membership_crud.get_membership(db, user.id, agent.id)
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if membership is not None:
+        return
+    # A reviewer assigned to this agent (even a private one) must be able to open it to
+    # actually review it, without being a member.
+    if await review_crud.has_review_for_agent(db, user.id, agent.id):
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
 
 async def ensure_can_manage(db: AsyncSession, agent: Agent, user: User) -> None:
