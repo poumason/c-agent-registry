@@ -10,8 +10,12 @@ from app.crud import review as review_crud
 from app.crud import user_agent_rel as membership_crud
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
-from app.models.enums import AgentVisibility, UserRole
+from app.models.enums import AgentVisibility, UserRole, VersionStatus
 from app.models.user import User
+
+# A rejected version is fixed in place and resubmitted rather than forced into a brand
+# new version - that's what lets review history accumulate on a single version slug.
+EDITABLE_VERSION_STATUSES = (VersionStatus.draft, VersionStatus.rejected)
 
 
 async def get_agent_or_404(db: AsyncSession, slug: str) -> Agent:
@@ -48,6 +52,14 @@ async def ensure_agent_visible(db: AsyncSession, agent: Agent, user: User) -> No
     if await review_crud.has_review_for_agent(db, user.id, agent.id):
         return
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+
+def ensure_version_editable(agent_version: AgentVersion) -> None:
+    if agent_version.status not in EDITABLE_VERSION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only draft or rejected versions can be edited",
+        )
 
 
 async def ensure_can_manage(db: AsyncSession, agent: Agent, user: User) -> None:

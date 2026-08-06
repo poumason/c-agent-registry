@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent_access import (
+    EDITABLE_VERSION_STATUSES,
     ensure_agent_visible,
     ensure_can_manage,
     get_agent_by_id_or_404,
@@ -43,9 +44,10 @@ async def submit_version(
     agent_version = await get_version_or_404(db, version_slug)
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
     await ensure_can_manage(db, agent, current_user)
-    if agent_version.status != VersionStatus.draft:
+    if agent_version.status not in EDITABLE_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Only draft versions can be submitted"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only draft or rejected versions can be submitted",
         )
 
     reviewer_ids = set(payload.reviewer_ids)
