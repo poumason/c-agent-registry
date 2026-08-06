@@ -1,6 +1,7 @@
 import { DownloadOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   App,
   Breadcrumb,
   Button,
@@ -159,7 +160,10 @@ export default function VersionDetail() {
     );
   }
   const version = versionQuery.data;
-  const isDraft = version.status === "draft";
+  const isRejected = version.status === "rejected";
+  // Rejected versions are fixed in place and resubmitted rather than forking a new
+  // version, so review history keeps accumulating on this same version slug.
+  const isEditable = version.status === "draft" || isRejected;
 
   return (
     <div>
@@ -183,9 +187,9 @@ export default function VersionDetail() {
           </div>
         </div>
         <Space>
-          {isDraft && (
+          {isEditable && (
             <Button type="primary" onClick={() => setSubmitOpen(true)}>
-              送審
+              {isRejected ? "重新送審" : "送審"}
             </Button>
           )}
           {version.status === "approved" && (
@@ -206,6 +210,34 @@ export default function VersionDetail() {
         </Space>
       </div>
 
+      {version.status === "draft" && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 18 }}
+          title="草稿可以自由編輯"
+          description="下面的參數與依賴會在你按「儲存」/「加入」時個別存檔，草稿狀態下可以反覆修改、不影響任何人。按下右上角「送審」並選好審核者、確認送出後，才會正式進入審核，且版本會被鎖定、無法再編輯。"
+        />
+      )}
+      {version.status === "in_review" && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 18 }}
+          title="審核中，已鎖定編輯"
+          description="這個版本已送審，等待右側審核者做出決定前無法修改參數或依賴。"
+        />
+      )}
+      {isRejected && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 18 }}
+          title="已被退回，可以直接修改後重新送審"
+          description="請參考右側審核紀錄裡的意見，改好下面的參數或依賴後按右上角「重新送審」，不用另外建立新版本——這個版本的審核紀錄會持續累積，之前的退回意見也會留著。"
+        />
+      )}
+
       <div
         style={{
           display: "grid",
@@ -223,7 +255,7 @@ export default function VersionDetail() {
               layout="vertical"
               initialValues={{ url: version.url ?? "", streaming: version.streaming }}
               onFinish={(v) => saveParamsMutation.mutate(v)}
-              disabled={!isDraft}
+              disabled={!isEditable}
             >
               <Form.Item label="Endpoint URL" name="url">
                 <Input placeholder="https://agents.example.com/your-agent" />
@@ -241,7 +273,7 @@ export default function VersionDetail() {
                     : <Typography.Text type="secondary">（無）</Typography.Text>}
                 </Space>
               </div>
-              <div style={{ marginBottom: isDraft ? 14 : 0 }}>
+              <div style={{ marginBottom: isEditable ? 14 : 0 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 600, color: "#9AA0AC", marginBottom: 6 }}>
                   DEFAULT OUTPUT MODES
                 </div>
@@ -251,7 +283,7 @@ export default function VersionDetail() {
                     : <Typography.Text type="secondary">（無）</Typography.Text>}
                 </Space>
               </div>
-              {isDraft && (
+              {isEditable && (
                 <Button htmlType="submit" loading={saveParamsMutation.isPending}>
                   儲存參數
                 </Button>
@@ -264,7 +296,7 @@ export default function VersionDetail() {
               <Typography.Title level={5} style={{ marginBottom: 0 }}>
                 依賴的 Skill / MCP
               </Typography.Title>
-              {isDraft && (
+              {isEditable && (
                 <Button size="small" onClick={() => setDepOpen(true)}>
                   新增依賴
                 </Button>
@@ -281,7 +313,7 @@ export default function VersionDetail() {
                     <Tag
                       key={d.id}
                       color={d.type === "mcp" ? "geekblue" : "default"}
-                      closable={isDraft}
+                      closable={isEditable}
                       onClose={(e) => {
                         e.preventDefault();
                         removeDepMutation.mutate(d.id);
@@ -305,11 +337,21 @@ export default function VersionDetail() {
           {reviewsQuery.data && reviewsQuery.data.length > 0 ? (
             <Space orientation="vertical" style={{ width: "100%" }} size={14}>
               {reviewsQuery.data.map((r) => (
-                <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 12.5, fontFamily: "monospace", color: "#6B7280" }}>
-                    {r.reviewer_id.slice(0, 8)}…
+                <div key={r.id}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 12.5, fontFamily: "monospace", color: "#6B7280" }}>
+                      {r.reviewer_id.slice(0, 8)}…
+                    </div>
+                    <ReviewResultTag result={r.result} />
                   </div>
-                  <ReviewResultTag result={r.result} />
+                  {r.comment && (
+                    <Typography.Paragraph
+                      type="secondary"
+                      style={{ fontSize: 12.5, whiteSpace: "pre-wrap", marginTop: 4, marginBottom: 0 }}
+                    >
+                      {r.comment}
+                    </Typography.Paragraph>
+                  )}
                 </div>
               ))}
             </Space>

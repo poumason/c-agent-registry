@@ -225,6 +225,10 @@ export default function AgentDetail() {
         cancelText="取消"
       >
         <Form form={versionForm} layout="vertical" onFinish={(v) => createVersionMutation.mutate(v.url)}>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+            這會建立一個草稿版本，之後可以在版本詳情頁自由編輯 URL、streaming、依賴等參數，
+            直到你自己按下「送審」才會正式送出去審核。
+          </Typography.Paragraph>
           <Form.Item label="Endpoint URL" name="url" extra="之後可以在版本詳情頁繼續編輯其他參數">
             <Input placeholder="https://agents.example.com/your-agent" />
           </Form.Item>
