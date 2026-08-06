@@ -29,3 +29,7 @@ export async function updateUser(userId: string, input: UpdateUserInput): Promis
   const { data } = await apiClient.patch<User>(`/users/${userId}`, input);
   return data;
 }
+
+export async function deleteUser(userId: string): Promise<void> {
+  await apiClient.delete(`/users/${userId}`);
+}

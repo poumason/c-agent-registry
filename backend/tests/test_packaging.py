@@ -27,6 +27,7 @@ async def test_approval_generates_downloadable_package(client, db_session):
         },
     )
     assert resp.status_code == 201
+    agent_id = resp.json()["id"]
 
     resp = await client.post(
         "/api/v1/agents/pkg-agent/versions",
@@ -75,6 +76,11 @@ async def test_approval_generates_downloadable_package(client, db_session):
         json={"result": "approved"},
     )
     assert resp.status_code == 200
+
+    resp = await client.get(
+        f"/api/v1/versions/{version_slug}", headers=auth_headers(member_token)
+    )
+    assert resp.json()["package_path"] == f"{agent_id}/{version_slug}.zip"
 
     resp = await client.get(
         f"/api/v1/versions/{version_slug}/download", headers=auth_headers(member_token)

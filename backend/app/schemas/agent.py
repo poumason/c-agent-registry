@@ -14,6 +14,13 @@ class AgentCreate(BaseModel):
     visibility: AgentVisibility = AgentVisibility.private
 
 
+class AgentUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    provider: str | None = None
+    visibility: AgentVisibility | None = None
+
+
 class AgentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

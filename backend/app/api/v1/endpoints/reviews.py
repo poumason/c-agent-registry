@@ -49,21 +49,34 @@ async def submit_version(
         )
 
     reviewer_ids = set(payload.reviewer_ids)
-    if current_user.id in reviewer_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign yourself as reviewer"
-        )
-    for reviewer_id in reviewer_ids:
-        reviewer = await user_crud.get_by_id(db, reviewer_id)
-        if (
-            reviewer is None
-            or reviewer.status != UserStatus.active
-            or reviewer.role not in (UserRole.reviewer, UserRole.admin)
-        ):
+    if reviewer_ids:
+        if current_user.id in reviewer_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{reviewer_id} is not an eligible reviewer",
+                detail="Cannot assign yourself as reviewer",
             )
+        for reviewer_id in reviewer_ids:
+            reviewer = await user_crud.get_by_id(db, reviewer_id)
+            if (
+                reviewer is None
+                or reviewer.status != UserStatus.active
+                or reviewer.role not in (UserRole.reviewer, UserRole.admin)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{reviewer_id} is not an eligible reviewer",
+                )
+    else:
+        # No reviewers named: fall back to every eligible reviewer (system role
+        # reviewer/admin), excluding the submitter.
+        candidates = await list_reviewer_candidates(db)
+        reviewer_ids = {c.id for c in candidates} - {current_user.id}
+
+    if not reviewer_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No eligible reviewers available for this version",
+        )
 
     for reviewer_id in reviewer_ids:
         await review_crud.create_review(

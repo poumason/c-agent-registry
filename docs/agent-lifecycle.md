@@ -19,6 +19,9 @@ draft --submit--> in_review --approve--> approved --activate--> active
   （`backend/app/api/v1/endpoints/agent_versions.py`，常數 `MAX_ACTIVE_VERSIONS_PER_AGENT = 2`）。
 - 只有 `draft` 狀態的版本能改參數（`PATCH /versions/{slug}`）跟改依賴
   （`POST`/`DELETE /versions/{slug}/dependencies`）——送審之後就鎖住，避免審核中途改東西。
+- `Agent` 本身（name/description/provider/visibility）用 `PATCH /agents/{slug}` 改，跟版本的
+  狀態無關，任何時候都能改（owner/editor/admin）。`DELETE /agents/{slug}` 是軟刪除，只有
+  owner/admin 能刪，細節見 [roles-and-permissions.md](roles-and-permissions.md#軟刪除)。
 
 ## Skill / MCP 依賴
 
@@ -42,8 +45,11 @@ draft --submit--> in_review --approve--> approved --activate--> active
    A2A（Agent2Agent）協定的 AgentCard 格式
 3. 組 `install.yaml`——列出 `skills`（含 name/version/category）跟 `mcp`（含 name/version/host）
 4. 把每個 skill 依賴的檔案從 MinIO `skills` bucket 抓下來，放進 zip 的 `skills/<skill 名稱>/` 底下
-5. 全部打包成 zip，上傳到 MinIO 的 `packages` bucket，object key 存回
-   `AgentVersion.package_path`
+5. 全部打包成 zip，上傳到 MinIO 的 `packages` bucket，object key 是
+   `{agent_id}/{version_slug}.zip`（例如 `3fae.../invoice-extractor-v3.zip`），存回
+   `AgentVersion.package_path`。依 `agent_id` 分資料夾是 Claude.md 明講的路徑結構；檔名沿用
+   version slug 而不是字面上的固定檔名，因為同一個 agent 資料夾下會有好幾個版本，固定檔名會
+   互相覆蓋。
 
 下載走 `GET /versions/{slug}/download`，回傳的是 MinIO 預簽名 URL（1 小時有效），不是直接把檔案
 串流過我們的 API——沒 approve 過（`package_path` 是 `null`）會回 409。

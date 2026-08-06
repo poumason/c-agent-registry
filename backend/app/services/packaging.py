@@ -93,7 +93,9 @@ async def generate_package_for_version(
         if not skill_files:
             zf.writestr("skills/.gitkeep", b"")
 
-    object_name = f"{agent_version.slug}.zip"
+    # bucket/{agent_id}/{version_slug}.zip - the version slug (not a fixed literal name)
+    # keeps multiple versions of the same agent from colliding in the same folder.
+    object_name = f"{agent.id}/{agent_version.slug}.zip"
     put_bytes(
         settings.minio_packages_bucket, object_name, buffer.getvalue(), "application/zip"
     )

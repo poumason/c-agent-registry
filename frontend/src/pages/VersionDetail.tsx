@@ -328,16 +328,19 @@ export default function VersionDetail() {
         okText="送出"
         cancelText="取消"
       >
-        <Form form={submitForm} layout="vertical" onFinish={(v) => submitMutation.mutate(v.reviewer_ids)}>
+        <Form
+          form={submitForm}
+          layout="vertical"
+          onFinish={(v) => submitMutation.mutate(v.reviewer_ids ?? [])}
+        >
           <Form.Item
-            label="指定審核者"
+            label="指定審核者（選填）"
             name="reviewer_ids"
-            rules={[{ required: true, message: "至少指定一位審核者" }]}
-            extra="只能指定系統角色為 reviewer 或 admin 的使用者"
+            extra="只能指定系統角色為 reviewer 或 admin 的使用者。不選就自動通知所有 reviewer/admin。"
           >
             <Select
               mode="multiple"
-              placeholder="選擇審核者"
+              placeholder="不選就自動通知所有審核者"
               loading={reviewerCandidatesQuery.isLoading}
               options={(reviewerCandidatesQuery.data ?? []).map((c) => ({
                 value: c.id,

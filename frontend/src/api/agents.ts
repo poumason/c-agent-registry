@@ -24,6 +24,22 @@ export async function createAgent(input: CreateAgentInput): Promise<Agent> {
   return data;
 }
 
+export interface UpdateAgentInput {
+  name?: string;
+  description?: string;
+  provider?: string;
+  visibility?: AgentVisibility;
+}
+
+export async function updateAgent(slug: string, input: UpdateAgentInput): Promise<Agent> {
+  const { data } = await apiClient.patch<Agent>(`/agents/${slug}`, input);
+  return data;
+}
+
+export async function deleteAgent(slug: string): Promise<void> {
+  await apiClient.delete(`/agents/${slug}`);
+}
+
 export async function listMembers(slug: string): Promise<Member[]> {
   const { data } = await apiClient.get<Member[]>(`/agents/${slug}/members`);
   return data;

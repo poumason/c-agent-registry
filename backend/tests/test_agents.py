@@ -202,3 +202,74 @@ async def test_max_two_active_versions_per_agent(client, db_session):
         f"/api/v1/versions/{slugs[2]}/activate", headers=auth_headers(token)
     )
     assert resp.status_code == 409
+
+
+async def test_owner_can_edit_agent_fields(client, db_session):
+    await make_user(db_session, email="owner4@example.com", role=UserRole.member)
+    token = await login(client, "owner4@example.com")
+    resp = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers(token),
+        json={"slug": "agent-edit", "name": "Before", "visibility": "private"},
+    )
+    assert resp.status_code == 201
+
+    resp = await client.patch(
+        "/api/v1/agents/agent-edit",
+        headers=auth_headers(token),
+        json={"name": "After", "description": "now with a description", "visibility": "public"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"] == "After"
+    assert body["description"] == "now with a description"
+    assert body["visibility"] == "public"
+    # slug is not editable via this endpoint
+    assert body["slug"] == "agent-edit"
+
+
+async def test_editor_can_edit_but_only_owner_can_delete_agent(client, db_session):
+    await make_user(db_session, email="owner5@example.com", role=UserRole.member)
+    editor = await make_user(db_session, email="editor5@example.com", role=UserRole.member)
+    owner_token = await login(client, "owner5@example.com")
+    editor_token = await login(client, "editor5@example.com")
+
+    resp = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers(owner_token),
+        json={"slug": "agent-del", "name": "To Delete", "visibility": "internal"},
+    )
+    assert resp.status_code == 201
+    await client.post(
+        "/api/v1/agents/agent-del/members",
+        headers=auth_headers(owner_token),
+        json={"user_id": str(editor.id)},
+    )
+
+    # editor can edit content
+    resp = await client.patch(
+        "/api/v1/agents/agent-del",
+        headers=auth_headers(editor_token),
+        json={"description": "edited by editor"},
+    )
+    assert resp.status_code == 200
+
+    # editor cannot delete the agent
+    resp = await client.delete("/api/v1/agents/agent-del", headers=auth_headers(editor_token))
+    assert resp.status_code == 403
+
+    # owner can delete it
+    resp = await client.delete("/api/v1/agents/agent-del", headers=auth_headers(owner_token))
+    assert resp.status_code == 204
+
+    # deleted agent is 404 everywhere - get, list, and its sub-resources
+    resp = await client.get("/api/v1/agents/agent-del", headers=auth_headers(owner_token))
+    assert resp.status_code == 404
+
+    resp = await client.get("/api/v1/agents", headers=auth_headers(owner_token))
+    assert "agent-del" not in {a["slug"] for a in resp.json()}
+
+    resp = await client.get(
+        "/api/v1/agents/agent-del/versions", headers=auth_headers(owner_token)
+    )
+    assert resp.status_code == 404

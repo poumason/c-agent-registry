@@ -9,13 +9,22 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Spin,
   Table,
   Typography,
 } from "antd";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { getAgent, inviteMember, listMembers, removeMember } from "../api/agents";
+import {
+  deleteAgent,
+  getAgent,
+  inviteMember,
+  listMembers,
+  removeMember,
+  updateAgent,
+} from "../api/agents";
+import type { UpdateAgentInput } from "../api/agents";
 import type { AgentVersion } from "../api/types";
 import { createVersion, listVersions } from "../api/versions";
 import { AssetRoleTag, VersionStatusTag, VisibilityTag } from "../components/tags";
@@ -27,8 +36,10 @@ export default function AgentDetail() {
   const queryClient = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [newVersionOpen, setNewVersionOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [inviteForm] = Form.useForm<{ user_id: string }>();
   const [versionForm] = Form.useForm<{ url?: string }>();
+  const [editForm] = Form.useForm<UpdateAgentInput>();
 
   const agentQuery = useQuery({
     queryKey: ["agent", slug],
@@ -78,6 +89,26 @@ export default function AgentDetail() {
     onError: () => message.error("建立版本失敗"),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: (input: UpdateAgentInput) => updateAgent(slug!, input),
+    onSuccess: () => {
+      message.success("已更新 agent");
+      queryClient.invalidateQueries({ queryKey: ["agent", slug] });
+      setEditOpen(false);
+    },
+    onError: () => message.error("更新失敗"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteAgent(slug!),
+    onSuccess: () => {
+      message.success("已刪除 agent");
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      navigate("/my-agents");
+    },
+    onError: () => message.error("刪除失敗"),
+  });
+
   if (agentQuery.isLoading || !agentQuery.data) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
@@ -120,6 +151,31 @@ export default function AgentDetail() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <Button
+            onClick={() => {
+              editForm.setFieldsValue({
+                name: agent.name,
+                description: agent.description ?? undefined,
+                provider: agent.provider ?? undefined,
+                visibility: agent.visibility,
+              });
+              setEditOpen(true);
+            }}
+          >
+            編輯
+          </Button>
+          <Popconfirm
+            title="確定要刪除這個 agent 嗎？"
+            description="刪除後會從列表消失，但版本/審核紀錄不會被清除。"
+            onConfirm={() => deleteMutation.mutate()}
+            okText="刪除"
+            okButtonProps={{ danger: true }}
+            cancelText="取消"
+          >
+            <Button danger loading={deleteMutation.isPending}>
+              刪除
+            </Button>
+          </Popconfirm>
           <Button onClick={() => setInviteOpen(true)}>邀請成員</Button>
           <Button type="primary" onClick={() => setNewVersionOpen(true)}>
             新增版本
@@ -193,6 +249,37 @@ export default function AgentDetail() {
       ) : (
         <Empty description="尚無成員資料" />
       )}
+
+      <Modal
+        title="編輯 Agent"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={() => editForm.submit()}
+        confirmLoading={updateMutation.isPending}
+        okText="儲存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical" onFinish={(v) => updateMutation.mutate(v)}>
+          <Form.Item label="名稱" name="name" rules={[{ required: true, message: "請輸入名稱" }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item label="描述" name="description">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item label="Provider" name="provider">
+            <Input />
+          </Form.Item>
+          <Form.Item label="Visibility" name="visibility" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { value: "private", label: "private — 只有成員看得到" },
+                { value: "internal", label: "internal — 登入的使用者都看得到" },
+                { value: "public", label: "public — 對外公開" },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="邀請成員"

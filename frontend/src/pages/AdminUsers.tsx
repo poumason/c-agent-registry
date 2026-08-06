@@ -1,14 +1,15 @@
 import { PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Form, Input, Modal, Select, Switch, Table, Typography } from "antd";
+import { App, Button, Form, Input, Modal, Popconfirm, Select, Switch, Table, Typography } from "antd";
 import { useState } from "react";
-import { createUser, listUsers, updateUser } from "../api/users";
+import { deleteUser, createUser, listUsers, updateUser } from "../api/users";
 import type { CreateUserInput } from "../api/users";
-import type { User } from "../api/types";
-import { UserRoleTag } from "../components/tags";
+import type { User, UserRole } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 
 export default function AdminUsers() {
   const { message } = App.useApp();
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<CreateUserInput>();
@@ -26,6 +27,15 @@ export default function AdminUsers() {
     onError: () => message.error("建立失敗，email 可能已被使用"),
   });
 
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: UserRole }) => updateUser(id, { role }),
+    onSuccess: () => {
+      message.success("已更新角色");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: () => message.error("更新失敗"),
+  });
+
   const toggleStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: User["status"] }) =>
       updateUser(id, { status }),
@@ -34,6 +44,15 @@ export default function AdminUsers() {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: () => message.error("更新失敗"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteUser,
+    onSuccess: () => {
+      message.success("已刪除使用者");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: () => message.error("刪除失敗"),
   });
 
   return (
@@ -60,7 +79,24 @@ export default function AdminUsers() {
         columns={[
           { title: "姓名", dataIndex: "name" },
           { title: "Email", dataIndex: "email" },
-          { title: "角色", dataIndex: "role", render: (r: User["role"]) => <UserRoleTag role={r} /> },
+          {
+            title: "角色",
+            dataIndex: "role",
+            render: (r: UserRole, record: User) => (
+              <Select
+                value={r}
+                size="small"
+                style={{ width: 110 }}
+                loading={updateRoleMutation.isPending}
+                onChange={(role) => updateRoleMutation.mutate({ id: record.id, role })}
+                options={[
+                  { value: "member", label: "member" },
+                  { value: "reviewer", label: "reviewer" },
+                  { value: "admin", label: "admin" },
+                ]}
+              />
+            ),
+          },
           {
             title: "狀態",
             dataIndex: "status",
@@ -79,6 +115,25 @@ export default function AdminUsers() {
             title: "加入時間",
             dataIndex: "created_at",
             render: (v: string) => new Date(v).toLocaleDateString(),
+          },
+          {
+            title: "",
+            key: "actions",
+            render: (_: unknown, record: User) =>
+              record.id === currentUser?.id ? null : (
+                <Popconfirm
+                  title="確定要刪除這個使用者嗎？"
+                  description="刪除後對方將無法再登入。"
+                  onConfirm={() => deleteMutation.mutate(record.id)}
+                  okText="刪除"
+                  okButtonProps={{ danger: true }}
+                  cancelText="取消"
+                >
+                  <Button size="small" type="text" danger loading={deleteMutation.isPending}>
+                    刪除
+                  </Button>
+                </Popconfirm>
+              ),
           },
         ]}
       />

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.agent_access import (
     ensure_agent_visible,
     ensure_can_administer,
+    ensure_can_manage,
     get_agent_or_404,
 )
 from app.core.deps import get_current_user
@@ -15,7 +16,7 @@ from app.db.base import get_db
 from app.models.agent import Agent
 from app.models.enums import AssetRole
 from app.models.user import User
-from app.schemas.agent import AgentCreate, AgentRead
+from app.schemas.agent import AgentCreate, AgentRead, AgentUpdate
 from app.schemas.user_agent_rel import MemberRead, MemberUpsert
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -70,6 +71,37 @@ async def get_agent(
     agent = await get_agent_or_404(db, slug)
     await ensure_agent_visible(db, agent, current_user)
     return AgentRead.model_validate(agent)
+
+
+@router.patch("/{slug}", response_model=AgentRead)
+async def update_agent(
+    slug: str,
+    payload: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentRead:
+    agent = await get_agent_or_404(db, slug)
+    await ensure_can_manage(db, agent, current_user)
+    agent = await agent_crud.update_agent(
+        db,
+        agent,
+        name=payload.name,
+        description=payload.description,
+        provider=payload.provider,
+        visibility=payload.visibility,
+    )
+    return AgentRead.model_validate(agent)
+
+
+@router.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_agent(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    agent = await get_agent_or_404(db, slug)
+    await ensure_can_administer(db, agent, current_user)
+    await agent_crud.soft_delete(db, agent)
 
 
 @router.get("/{slug}/members", response_model=list[MemberRead])

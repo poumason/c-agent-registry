@@ -25,7 +25,9 @@ class ReviewDecision(BaseModel):
 
 
 class SubmitForReview(BaseModel):
-    reviewer_ids: list[uuid.UUID] = Field(min_length=1)
+    # Optional: if empty, the submitter is asking to fall back to every eligible reviewer
+    # (system role reviewer/admin) rather than naming specific people.
+    reviewer_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class ReviewerCandidate(BaseModel):

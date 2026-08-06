@@ -9,12 +9,16 @@
 
 ## 使用情境
 ### 使用者
-1. 網站建立後會有一個 admin 的管理者可以幫忙建立多個使用者
-   - 預期角色： admin, owner, member
-     - admin 負責整個系統的權限
-     - owner 可以建立 agent, review member 建立的 agent, 調整 agent 的所有參數
-     - member 基本角色，可建立 agent, submit agent 給 owner 檢查
-2. owner/member 可用建立 agent 所以他們需要有能力設定 agent
+1. 網站建立後會有一個 admin 的管理者可以管理使用者
+   - 基本功能：建立，啟動，刪除，調整角色（例如把某個 member 設定成 reviewer）
+2. 角色清單
+   - system admin
+     - admin 負責整個系統的權限(建立使用者，建立 review 規則等)
+   - member
+     - 基本角色，只能管理自己建立的 agent
+   - Reviwer
+     - 功能繼承 member
+     - 增加擁有審核 agent 的能力
 3. 加入 SSO 登入的機制，預設登入的使用使用 member 角色
 4. 角色的權限大綱
     | 功能/角色  | Member | Reviewer | System admin |
@@ -30,16 +34,22 @@
     | 設定資料庫 | X | X | V|
     | 建立/刪除使用者 | X | X | V|
     | 設定審核檢核規則 | X | X | V|
-5. 每個建立 agent 的人視為 owner，他可以邀請其他 member 變成共同編輯者。
 
 ### Agent
 1. 參考 idea.drawio 中的 ERD，他會被使用者建立，設定參數，每一個 agent 會有多個版本，同時只能有 2 個版本被 active。
-2. agent 被 submit 後需要按 agent 可被審核的人數清單來寫入 reviews
-3. 在 agent 被 review 通過後，會產生 zip 檔案，內容有
+2. 建立 agent 的人視為 owner，可以邀請其他 member 變成共同編輯者。
+3. agent 在建立時可用選擇需要的 skill/mcp，他會被紀錄起來 agent_dependcy
+4. agent 被 submit 時需要指定擁有 reviewer 權限的使用者來進行審核（如果沒有指定就是按 agent 可被審核的人數清單來寫入 reviews）
+5. 在 agent 被 review 通過後，會產生 zip 檔案(內容如下）
    - agent_card.json
    - install.yaml
    - skills/
-4. agent 在建立時可用選擇需要的 skill/mcp，他會被紀錄起來 agent_dependcy
+6. zip 檔會被放在 minio 中，路徑結構
+   ```
+   --> bucket
+   ----> agent_id/
+   ------> agent_version.zip
+   ```
 
 
 
@@ -64,3 +74,6 @@
 - 點擊 version list 可用看到 version 的細節
   - version 細節可用設定相關的參數(from agent_version )
   - 細節還可以選擇 sklls/ mcp 來使用 (from skill/ mcp table)
+### skill/mcp page
+- 顯示目前 DB 中有的資料內容
+- skill/mcp 利用 backend api 自動同步而來

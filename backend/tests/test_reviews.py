@@ -70,6 +70,31 @@ async def test_submit_creates_review_for_named_reviewer(client, db_session):
     assert reviews[0]["reviewer_id"] == str(reviewer.id)
 
 
+async def test_submit_without_reviewer_ids_fans_out_to_all_eligible_reviewers(
+    client, db_session
+):
+    await make_user(db_session, email="member4@example.com", role=UserRole.member)
+    rev_a = await make_user(db_session, email="reva@example.com", role=UserRole.reviewer)
+    rev_b = await make_user(db_session, email="revb@example.com", role=UserRole.admin)
+    member_token = await login(client, "member4@example.com")
+
+    version_slug = await _create_agent_and_draft_version(client, member_token, "agent-r4")
+
+    resp = await client.post(
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(member_token),
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "in_review"
+
+    resp = await client.get(
+        f"/api/v1/versions/{version_slug}/reviews", headers=auth_headers(member_token)
+    )
+    reviewer_ids = {r["reviewer_id"] for r in resp.json()}
+    assert reviewer_ids == {str(rev_a.id), str(rev_b.id)}
+
+
 async def test_only_the_assigned_reviewer_can_decide(client, db_session):
     await make_user(db_session, email="member2@example.com", role=UserRole.member)
     await make_user(db_session, email="assigned@example.com", role=UserRole.reviewer)

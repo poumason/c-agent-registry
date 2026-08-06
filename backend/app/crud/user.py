@@ -1,5 +1,6 @@
 import secrets
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,27 +11,38 @@ from app.models.user import User
 
 
 async def get_by_id(db: AsyncSession, user_id: uuid.UUID) -> User | None:
-    return await db.get(User, user_id)
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.deleted_at.is_(None))
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_by_email(db: AsyncSession, email: str) -> User | None:
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(
+        select(User).where(User.email == email, User.deleted_at.is_(None))
+    )
     return result.scalar_one_or_none()
 
 
 async def list_users(db: AsyncSession) -> list[User]:
-    result = await db.execute(select(User).order_by(User.created_at))
+    result = await db.execute(
+        select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)
+    )
     return list(result.scalars().all())
 
 
 async def count_admins(db: AsyncSession) -> int:
-    result = await db.execute(select(User).where(User.role == UserRole.admin))
+    result = await db.execute(
+        select(User).where(User.role == UserRole.admin, User.deleted_at.is_(None))
+    )
     return len(result.scalars().all())
 
 
 async def list_by_roles(db: AsyncSession, roles: list[UserRole]) -> list[User]:
     result = await db.execute(
-        select(User).where(User.role.in_(roles), User.status == UserStatus.active)
+        select(User).where(
+            User.role.in_(roles), User.status == UserStatus.active, User.deleted_at.is_(None)
+        )
     )
     return list(result.scalars().all())
 
@@ -96,3 +108,9 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def soft_delete(db: AsyncSession, user: User) -> None:
+    user.deleted_at = datetime.now(timezone.utc)
+    user.status = UserStatus.disabled
+    await db.commit()
