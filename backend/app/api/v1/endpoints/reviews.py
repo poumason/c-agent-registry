@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent_access import (
+    EDITABLE_VERSION_STATUSES,
     ensure_agent_visible,
     ensure_can_manage,
     get_agent_by_id_or_404,
@@ -43,9 +44,10 @@ async def submit_version(
     agent_version = await get_version_or_404(db, version_slug)
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
     await ensure_can_manage(db, agent, current_user)
-    if agent_version.status != VersionStatus.draft:
+    if agent_version.status not in EDITABLE_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Only draft versions can be submitted"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only draft or rejected versions can be submitted",
         )
 
     reviewer_ids = set(payload.reviewer_ids)
@@ -112,6 +114,21 @@ async def my_reviews(
     return [ReviewRead.model_validate(r) for r in reviews]
 
 
+@router.get("/reviews/{review_id}", response_model=ReviewRead)
+async def get_review(
+    review_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReviewRead:
+    review = await review_crud.get_by_id(db, review_id)
+    if review is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found")
+    agent_version = await get_version_or_404(db, review.agent_slug)
+    agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
+    await ensure_agent_visible(db, agent, current_user)
+    return ReviewRead.model_validate(review)
+
+
 @router.post("/reviews/{review_id}/decision", response_model=ReviewRead)
 async def decide_review(
     review_id: uuid.UUID,
@@ -138,6 +155,7 @@ async def decide_review(
 
     review.result = payload.result
     review.signoff_by = current_user.id
+    review.comment = payload.comment
     review = await review_crud.save(db, review)
 
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)

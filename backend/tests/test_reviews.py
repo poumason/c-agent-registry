@@ -148,9 +148,10 @@ async def test_rejection_sets_version_rejected_and_no_package(client, db_session
     resp = await client.post(
         f"/api/v1/reviews/{review_id}/decision",
         headers=auth_headers(reviewer_token),
-        json={"result": "rejected"},
+        json={"result": "rejected", "comment": "Needs a valid endpoint URL"},
     )
     assert resp.status_code == 200
+    assert resp.json()["comment"] == "Needs a valid endpoint URL"
 
     resp = await client.get(
         f"/api/v1/versions/{version_slug}", headers=auth_headers(member_token)
@@ -163,3 +164,122 @@ async def test_rejection_sets_version_rejected_and_no_package(client, db_session
         f"/api/v1/versions/{version_slug}/download", headers=auth_headers(member_token)
     )
     assert resp.status_code == 409
+
+
+async def test_rejection_without_comment_is_rejected(client, db_session):
+    await make_user(db_session, email="member3b@example.com", role=UserRole.member)
+    reviewer = await make_user(db_session, email="reviewer3b@example.com", role=UserRole.reviewer)
+    member_token = await login(client, "member3b@example.com")
+    reviewer_token = await login(client, "reviewer3b@example.com")
+
+    version_slug = await _create_agent_and_draft_version(client, member_token, "agent-r3b")
+    await client.post(
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(member_token),
+        json={"reviewer_ids": [str(reviewer.id)]},
+    )
+    resp = await client.get(
+        f"/api/v1/versions/{version_slug}/reviews", headers=auth_headers(member_token)
+    )
+    review_id = resp.json()[0]["id"]
+
+    resp = await client.post(
+        f"/api/v1/reviews/{review_id}/decision",
+        headers=auth_headers(reviewer_token),
+        json={"result": "rejected"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_reviewer_can_view_and_decide_a_private_agent_via_get_review(client, db_session):
+    await make_user(db_session, email="member4@example.com", role=UserRole.member)
+    reviewer = await make_user(db_session, email="reviewer4@example.com", role=UserRole.reviewer)
+    member_token = await login(client, "member4@example.com")
+    reviewer_token = await login(client, "reviewer4@example.com")
+
+    resp = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers(member_token),
+        json={"slug": "agent-r4", "name": "agent-r4", "visibility": "private"},
+    )
+    assert resp.status_code == 201
+    resp = await client.post(
+        "/api/v1/agents/agent-r4/versions",
+        headers=auth_headers(member_token),
+        json={"url": "https://example.com", "streaming": False},
+    )
+    version_slug = resp.json()["slug"]
+
+    # Before being assigned, a reviewer with no membership can't see this private agent.
+    resp = await client.get(f"/api/v1/versions/{version_slug}", headers=auth_headers(reviewer_token))
+    assert resp.status_code == 404
+
+    await client.post(
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(member_token),
+        json={"reviewer_ids": [str(reviewer.id)]},
+    )
+
+    # Now that they're assigned, they can see the version...
+    resp = await client.get(f"/api/v1/versions/{version_slug}", headers=auth_headers(reviewer_token))
+    assert resp.status_code == 200
+
+    # ...and their review, via the single-review endpoint.
+    resp = await client.get(
+        f"/api/v1/versions/{version_slug}/reviews", headers=auth_headers(member_token)
+    )
+    review_id = resp.json()[0]["id"]
+    resp = await client.get(f"/api/v1/reviews/{review_id}", headers=auth_headers(reviewer_token))
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "pending"
+
+
+async def test_rejected_version_can_be_edited_and_resubmitted_in_place(client, db_session):
+    await make_user(db_session, email="member5@example.com", role=UserRole.member)
+    reviewer = await make_user(db_session, email="reviewer5@example.com", role=UserRole.reviewer)
+    member_token = await login(client, "member5@example.com")
+    reviewer_token = await login(client, "reviewer5@example.com")
+
+    version_slug = await _create_agent_and_draft_version(client, member_token, "agent-r5")
+    await client.post(
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(member_token),
+        json={"reviewer_ids": [str(reviewer.id)]},
+    )
+    resp = await client.get(
+        f"/api/v1/versions/{version_slug}/reviews", headers=auth_headers(member_token)
+    )
+    first_review_id = resp.json()[0]["id"]
+    resp = await client.post(
+        f"/api/v1/reviews/{first_review_id}/decision",
+        headers=auth_headers(reviewer_token),
+        json={"result": "rejected", "comment": "wrong URL"},
+    )
+    assert resp.status_code == 200
+
+    # Same version, no new version needed: rejected is editable in place.
+    resp = await client.patch(
+        f"/api/v1/versions/{version_slug}",
+        headers=auth_headers(member_token),
+        json={"url": "https://fixed.example.com"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["url"] == "https://fixed.example.com"
+
+    # ...and resubmittable from rejected, without a new version slug.
+    resp = await client.post(
+        f"/api/v1/versions/{version_slug}/submit",
+        headers=auth_headers(member_token),
+        json={"reviewer_ids": [str(reviewer.id)]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "in_review"
+    assert resp.json()["slug"] == version_slug
+
+    # Review history accumulates on the same version: the old rejected row is still
+    # there alongside the new pending one.
+    resp = await client.get(
+        f"/api/v1/versions/{version_slug}/reviews", headers=auth_headers(member_token)
+    )
+    results = sorted(r["result"] for r in resp.json())
+    assert results == ["pending", "rejected"]

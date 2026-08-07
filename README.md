@@ -31,6 +31,17 @@ SSO 是選用的，`.env.example` 裡的 `OIDC_*` 留空就停用；要開的話
 
 ## 前端
 
+需要 **Node.js >= 20.19**（`vite@8` / `react-router-dom@7` 的最低要求）。如果系統的 Node 版本較舊
+（例如這台機器內建是 18.x），用 [nvm](https://github.com/nvm-sh/nvm) 裝一個 22 版，
+`frontend/.nvmrc` 已經釘住版本：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.nvm/nvm.sh && nvm install 22
+```
+
+裝好之後：
+
 ```bash
 cd frontend
 cp .env.example .env   # VITE_API_BASE_URL 預設指向 http://localhost:8000

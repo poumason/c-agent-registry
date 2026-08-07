@@ -67,6 +67,7 @@ export interface Review {
   priority: number;
   result: ReviewResult;
   signoff_by: string | null;
+  comment: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent_version import AgentVersion
 from app.models.enums import ReviewResult
 from app.models.review import Review
 
@@ -27,6 +28,20 @@ async def list_mine(
     stmt = stmt.order_by(Review.created_at)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def has_review_for_agent(db: AsyncSession, reviewer_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+    """Whether this user has ever been assigned a review on any version of this agent.
+
+    Used to let an assigned reviewer view an otherwise-private agent they're reviewing.
+    """
+    result = await db.execute(
+        select(Review.id)
+        .join(AgentVersion, Review.agent_slug == AgentVersion.slug)
+        .where(AgentVersion.agent_id == agent_id, Review.reviewer_id == reviewer_id)
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def create_review(

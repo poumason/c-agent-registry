@@ -6,6 +6,7 @@ import AgentDetail from "./pages/AgentDetail";
 import Browse from "./pages/Browse";
 import Login from "./pages/Login";
 import MyAgents from "./pages/MyAgents";
+import ReviewDetail from "./pages/ReviewDetail";
 import Reviews from "./pages/Reviews";
 import Skills from "./pages/Skills";
 import SsoCallback from "./pages/SsoCallback";
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/agents/:slug" element={<AgentDetail />} />
         <Route path="/agents/:agentSlug/versions/:versionSlug" element={<VersionDetail />} />
         <Route path="/reviews" element={<Reviews />} />
+        <Route path="/reviews/:reviewId" element={<ReviewDetail />} />
         <Route path="/skills" element={<Skills />} />
         <Route
           path="/admin/users"

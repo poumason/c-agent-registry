@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.agent_access import (
     ensure_agent_visible,
     ensure_can_manage,
+    ensure_version_editable,
     get_agent_by_id_or_404,
     get_agent_or_404,
     get_version_or_404,
@@ -86,11 +87,7 @@ async def update_version(
     agent_version = await get_version_or_404(db, version_slug)
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
     await ensure_can_manage(db, agent, current_user)
-    if agent_version.status != VersionStatus.draft:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Only draft versions can be edited",
-        )
+    ensure_version_editable(agent_version)
     if payload.url is not None:
         agent_version.url = payload.url
     if payload.streaming is not None:

@@ -18,10 +18,19 @@ export async function listVersionReviews(versionSlug: string): Promise<Review[]>
   return data;
 }
 
+export async function getReview(reviewId: string): Promise<Review> {
+  const { data } = await apiClient.get<Review>(`/reviews/${reviewId}`);
+  return data;
+}
+
 export async function decideReview(
   reviewId: string,
   result: Extract<ReviewResult, "approved" | "rejected">,
+  comment?: string,
 ): Promise<Review> {
-  const { data } = await apiClient.post<Review>(`/reviews/${reviewId}/decision`, { result });
+  const { data } = await apiClient.post<Review>(`/reviews/${reviewId}/decision`, {
+    result,
+    comment: comment || undefined,
+  });
   return data;
 }

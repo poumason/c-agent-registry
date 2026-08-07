@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.agent_access import (
     ensure_agent_visible,
     ensure_can_manage,
+    ensure_version_editable,
     get_agent_by_id_or_404,
     get_version_or_404,
 )
@@ -14,7 +15,7 @@ from app.crud import agent_dependency as dependency_crud
 from app.crud import mcp as mcp_crud
 from app.crud import skill as skill_crud
 from app.db.base import get_db
-from app.models.enums import DependencyType, VersionStatus
+from app.models.enums import DependencyType
 from app.models.user import User
 from app.schemas.agent_dependency import AgentDependencyCreate, AgentDependencyRead
 
@@ -48,11 +49,7 @@ async def add_dependency(
     agent_version = await get_version_or_404(db, version_slug)
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
     await ensure_can_manage(db, agent, current_user)
-    if agent_version.status != VersionStatus.draft:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Dependencies can only be changed while the version is a draft",
-        )
+    ensure_version_editable(agent_version)
 
     if payload.type == DependencyType.skill:
         exists = await skill_crud.get_by_id(db, payload.dependency_id)
@@ -86,11 +83,7 @@ async def remove_dependency(
     agent_version = await get_version_or_404(db, version_slug)
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
     await ensure_can_manage(db, agent, current_user)
-    if agent_version.status != VersionStatus.draft:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Dependencies can only be changed while the version is a draft",
-        )
+    ensure_version_editable(agent_version)
     dependency = await dependency_crud.get_by_id(db, dependency_row_id)
     if dependency is None or dependency.agent_slug != agent_version.slug:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependency not found")
