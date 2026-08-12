@@ -151,3 +151,7 @@ __pycache__/
 .ruff_cache/
 uv.lock.tmp
 .worktrees/
+
+
+# playwright-mcp
+.playwright-mcp/
