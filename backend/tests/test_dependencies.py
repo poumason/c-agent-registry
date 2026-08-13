@@ -1,9 +1,15 @@
 import uuid
 
+from app.core.config import get_settings
+from app.crud import mcp as mcp_crud
 from app.crud import registry as registry_crud
+from app.crud import skill as skill_crud
 from app.models.enums import UserRole
 from app.schemas.registry import RegistryItem
+from app.services.storage import put_bytes
 from tests.conftest import auth_headers, login, make_user
+
+settings = get_settings()
 
 
 async def _create_agent_and_draft_version(client, token, slug):
@@ -22,29 +28,38 @@ async def _create_agent_and_draft_version(client, token, slug):
     return resp.json()["slug"]
 
 
-async def _upload_skill(client, token, name="skill-x"):
-    resp = await client.post(
-        "/api/v1/skills",
-        headers=auth_headers(token),
-        files={"file": ("main.py", b"print('hi')", "text/plain")},
-        data={"name": name, "version": "1.0.0"},
+async def _seed_skill(db_session, user, name="skill-x"):
+    """Direct crud + MinIO seeding — there's no POST /skills anymore (skills arrive
+    via sync now, see docs/registry-sync.md)."""
+    object_name = f"seed/{name}/main.py"
+    put_bytes(settings.minio_skills_bucket, object_name, b"print('hi')", "text/plain")
+    skill = await skill_crud.create_skill(
+        db_session,
+        id=uuid.uuid4(),
+        name=name,
+        version="1.0.0",
+        description=None,
+        category=None,
+        tags=[],
+        created_by=user.id,
+        bucket_path=object_name,
+        mcp_dependency=[],
     )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+    return {"id": str(skill.id), "name": skill.name}
 
 
-async def test_create_mcp_and_list(client, db_session):
-    await make_user(db_session, email="m@example.com", role=UserRole.member)
-    token = await login(client, "m@example.com")
-    resp = await client.post(
-        "/api/v1/mcps",
-        headers=auth_headers(token),
-        json={"name": "mcp-1", "version": "1.0.0", "host": "https://mcp.example.com"},
+async def _seed_mcp(db_session, user, name="mcp-a"):
+    """Direct crud seeding — there's no POST /mcps anymore either (see MCPFab)."""
+    mcp = await mcp_crud.create_mcp(
+        db_session,
+        name=name,
+        version="1.0.0",
+        description=None,
+        category=None,
+        tags=[],
+        created_by=user.id,
     )
-    assert resp.status_code == 201, resp.text
-
-    resp = await client.get("/api/v1/mcps", headers=auth_headers(token))
-    assert any(m["name"] == "mcp-1" for m in resp.json())
+    return {"id": str(mcp.id), "name": mcp.name}
 
 
 async def test_dependency_rejects_unknown_id(client, db_session):
@@ -61,17 +76,12 @@ async def test_dependency_rejects_unknown_id(client, db_session):
 
 
 async def test_dependency_polymorphic_skill_and_mcp(client, db_session):
-    await make_user(db_session, email="dm2@example.com", role=UserRole.member)
+    user = await make_user(db_session, email="dm2@example.com", role=UserRole.member)
     token = await login(client, "dm2@example.com")
     version_slug = await _create_agent_and_draft_version(client, token, "agent-d2")
 
-    skill = await _upload_skill(client, token, "skill-a")
-    mcp_resp = await client.post(
-        "/api/v1/mcps",
-        headers=auth_headers(token),
-        json={"name": "mcp-a", "version": "1.0.0", "host": "https://mcp.example.com"},
-    )
-    mcp = mcp_resp.json()
+    skill = await _seed_skill(db_session, user, "skill-a")
+    mcp = await _seed_mcp(db_session, user, "mcp-a")
 
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
@@ -95,14 +105,14 @@ async def test_dependency_polymorphic_skill_and_mcp(client, db_session):
 
 
 async def test_dependencies_locked_after_submit(client, db_session):
-    await make_user(db_session, email="dm3@example.com", role=UserRole.member)
+    user = await make_user(db_session, email="dm3@example.com", role=UserRole.member)
     reviewer = await make_user(
         db_session, email="revd3@example.com", role=UserRole.reviewer
     )
     token = await login(client, "dm3@example.com")
     version_slug = await _create_agent_and_draft_version(client, token, "agent-d3")
 
-    skill = await _upload_skill(client, token, "skill-locked")
+    skill = await _seed_skill(db_session, user, "skill-locked")
     await client.post(
         f"/api/v1/versions/{version_slug}/submit",
         headers=auth_headers(token),
@@ -120,10 +130,10 @@ async def test_dependencies_locked_after_submit(client, db_session):
 async def test_dependency_omitted_source_defaults_to_legacy(client, db_session):
     # Backward compatibility: existing clients that never send `source` (like the
     # requests above) keep working against the first-party skills/mcps tables.
-    await make_user(db_session, email="dm4@example.com", role=UserRole.member)
+    user = await make_user(db_session, email="dm4@example.com", role=UserRole.member)
     token = await login(client, "dm4@example.com")
     version_slug = await _create_agent_and_draft_version(client, token, "agent-d4")
-    skill = await _upload_skill(client, token, "skill-legacy")
+    skill = await _seed_skill(db_session, user, "skill-legacy")
 
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",

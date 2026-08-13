@@ -7,30 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.crud import agent_dependency as dependency_crud
+from app.crud import agent_fab as agent_fab_crud
 from app.crud import agent_version as version_crud
 from app.crud import mcp as mcp_crud
 from app.crud import skill as skill_crud
 from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.enums import DependencyType
+from app.services.agent_card import build_agent_card
 from app.services.storage import ensure_buckets, get_bytes, put_bytes
 
 settings = get_settings()
-
-
-def _build_agent_card(agent: Agent, agent_version: AgentVersion) -> dict:
-    return {
-        "id": str(agent.id),
-        "slug": agent.slug,
-        "name": agent.name,
-        "description": agent.description,
-        "provider": agent.provider,
-        "version": agent_version.version,
-        "url": agent_version.url,
-        "streaming": agent_version.streaming,
-        "default_input_modes": agent_version.default_input_modes,
-        "default_output_modes": agent_version.default_output_modes,
-    }
 
 
 def _build_install_manifest(skills: list[dict], mcps: list[dict]) -> dict:
@@ -72,16 +59,20 @@ async def generate_package_for_version(
             mcp = await mcp_crud.get_by_id(db, dependency.dependency_id)
             if mcp is None:
                 continue
+            # No single "host" anymore — an MCP's host is per-fab now (see MCPFab).
+            # Which fab's host applies depends on where this agent version itself
+            # gets deployed (see AgentFab), a decision this packaging step doesn't
+            # make; install.yaml lists the MCP identity only.
             mcp_entries.append(
                 {
                     "id": str(mcp.id),
                     "name": mcp.name,
                     "version": mcp.version,
-                    "host": mcp.host,
                 }
             )
 
-    agent_card = _build_agent_card(agent, agent_version)
+    fabs = await agent_fab_crud.list_for_version(db, agent_version.slug)
+    agent_card = build_agent_card(agent, agent_version, fabs).model_dump()
     install_manifest = _build_install_manifest(skill_entries, mcp_entries)
 
     buffer = io.BytesIO()

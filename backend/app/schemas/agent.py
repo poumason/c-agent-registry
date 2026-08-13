@@ -12,6 +12,12 @@ class AgentCreate(BaseModel):
     description: str | None = None
     provider: str | None = None
     visibility: AgentVisibility = AgentVisibility.private
+    icon_path: str | None = None
+    category: list[str] = ["tool"]
+    hello_msg: str | None = None
+    example_questions: list[str] = []
+    audience: str | None = None
+    doc_url: str | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -19,6 +25,12 @@ class AgentUpdate(BaseModel):
     description: str | None = None
     provider: str | None = None
     visibility: AgentVisibility | None = None
+    icon_path: str | None = None
+    category: list[str] | None = None
+    hello_msg: str | None = None
+    example_questions: list[str] | None = None
+    audience: str | None = None
+    doc_url: str | None = None
 
 
 class AgentRead(BaseModel):
@@ -33,6 +45,12 @@ class AgentRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    icon_path: str | None
+    category: list[str]
+    hello_msg: str | None
+    example_questions: list[str]
+    audience: str | None
+    doc_url: str | None
 
 
 class AgentListResponse(BaseModel):

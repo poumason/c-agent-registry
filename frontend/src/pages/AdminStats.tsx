@@ -11,7 +11,7 @@ const COLOR_NEGATIVE = "var(--chart-critical)";
 const REGISTRY_LABELS: Record<string, { title: string; path: string }> = {
   mcp: { title: "MCP", path: "/registry/mcps" },
   model: { title: "Model", path: "/registry/models" },
-  "skillhub-registry": { title: "SkillHub registry", path: "/admin/skillhub-registry" },
+  "agent-templates": { title: "Agent Templates", path: "/admin/agent-templates" },
 };
 
 function formatBytes(bytes: number): string {
@@ -49,13 +49,19 @@ export default function AdminStats() {
       <div className="stat-grid">
         <StatCard to="/admin/agent-summary" value={data.agentsWithoutProductionCount} label="Agents without an active version" />
         <StatCard to="/admin/user-summary" value={data.disabledUsersCount} label="Disabled users" />
-        {Object.entries(data.registryStatus).map(([source, status]) => {
-          const meta = REGISTRY_LABELS[source] ?? { title: source, path: "/admin/skillhub-registry" };
-          // skillhub-registry is still the placeholder mirror — "unreachable syncs"
+        {Object.entries(data.registryStatus)
+          // The SkillHub Registry admin page was removed — its stat card only ever
+          // existed to link there, and the backend's placeholder mirror (see
+          // app/crud/registry.py) is still consumed elsewhere (VersionDetail's
+          // dependency picker), just no longer has an admin status page of its own.
+          .filter(([source]) => source !== "skillhub-registry")
+          .map(([source, status]) => {
+          const meta = REGISTRY_LABELS[source] ?? { title: source, path: "/admin/agent-templates" };
+          // agent-templates is still the placeholder mirror — "unreachable syncs"
           // (consecutive_failures) is its real signal. mcp/model are the real
           // availability-sync implementation instead, where "stale" (unavailable)
           // item count is the meaningful number; they have no sync-failure concept.
-          const isPlaceholder = source === "skillhub-registry";
+          const isPlaceholder = source === "agent-templates";
           return (
             <StatCard
               key={source}

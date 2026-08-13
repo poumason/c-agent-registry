@@ -56,6 +56,12 @@ async def create_agent(
     provider: str | None,
     visibility: AgentVisibility,
     created_by: uuid.UUID,
+    icon_path: str | None = None,
+    category: list[str] | None = None,
+    hello_msg: str | None = None,
+    example_questions: list[str] | None = None,
+    audience: str | None = None,
+    doc_url: str | None = None,
 ) -> Agent:
     agent = Agent(
         slug=slug,
@@ -64,6 +70,12 @@ async def create_agent(
         provider=provider,
         visibility=visibility,
         created_by=created_by,
+        icon_path=icon_path,
+        category=category if category is not None else ["tool"],
+        hello_msg=hello_msg,
+        example_questions=example_questions if example_questions is not None else [],
+        audience=audience,
+        doc_url=doc_url,
     )
     db.add(agent)
     await db.commit()
@@ -79,6 +91,12 @@ async def update_agent(
     description: str | None = None,
     provider: str | None = None,
     visibility: AgentVisibility | None = None,
+    icon_path: str | None = None,
+    category: list[str] | None = None,
+    hello_msg: str | None = None,
+    example_questions: list[str] | None = None,
+    audience: str | None = None,
+    doc_url: str | None = None,
 ) -> Agent:
     if name is not None:
         agent.name = name
@@ -88,6 +106,18 @@ async def update_agent(
         agent.provider = provider
     if visibility is not None:
         agent.visibility = visibility
+    if icon_path is not None:
+        agent.icon_path = icon_path
+    if category is not None:
+        agent.category = category
+    if hello_msg is not None:
+        agent.hello_msg = hello_msg
+    if example_questions is not None:
+        agent.example_questions = example_questions
+    if audience is not None:
+        agent.audience = audience
+    if doc_url is not None:
+        agent.doc_url = doc_url
     await db.commit()
     await db.refresh(agent)
     return agent

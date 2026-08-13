@@ -524,3 +524,11 @@ a.stat-card:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Sync-diff highlight (Registry MCP/Skill pages) ---
+   Flags a row whose availability status flipped in the most recent sync run. Amber
+   isn't theme-remapped (see tokens.css's status-hue comment), so this reads the same
+   in light/dark without a dedicated background token. */
+.row-recently-changed > td {
+  background: color-mix(in srgb, var(--p-amber-500) 14%, transparent) !important;
+}

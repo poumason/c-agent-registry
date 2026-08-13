@@ -50,6 +50,12 @@ export interface Agent {
   created_by: string;
   created_at: string;
   updated_at: string;
+  icon_path: string | null;
+  category: string[];
+  hello_msg: string | null;
+  example_questions: string[];
+  audience: string | null;
+  doc_url: string | null;
 }
 
 export interface AgentListResponse {
@@ -70,20 +76,71 @@ export interface Member {
   updated_at: string;
 }
 
+// One entry in an agent card's `skills` array (A2A 1.0 shape) — user-authored
+// metadata describing a capability, distinct from AgentDependency's skill/mcp
+// catalog references.
+export interface AgentCardSkillEntry {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  examples: string[];
+  inputModes: string[];
+  outputModes: string[];
+}
+
 export interface AgentVersion {
   slug: string;
   agent_id: string;
   version: number;
-  url: string | null;
   streaming: boolean;
   default_input_modes: string[];
   default_output_modes: string[];
   status: VersionStatus;
   package_path: string | null;
+  skills: AgentCardSkillEntry[];
   created_by: string;
   updated_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentFab {
+  fab_id: string;
+  agent_version_slug: string;
+  url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentCardInterface {
+  url: string;
+  protocolBinding: string;
+  protocolVersion: string;
+}
+
+export interface AgentCardProvider {
+  organization: string | null;
+  url: string | null;
+}
+
+export interface AgentCardCapabilities {
+  streaming: boolean;
+  pushNotifications: boolean;
+  extendedAgentCard: boolean;
+}
+
+export interface AgentCard {
+  name: string;
+  description: string | null;
+  supportedInterfaces: AgentCardInterface[];
+  provider: AgentCardProvider | null;
+  iconUrl: string | null;
+  version: string;
+  capabilities: AgentCardCapabilities;
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  skills: AgentCardSkillEntry[];
 }
 
 export interface Review {
@@ -244,6 +301,12 @@ export interface ReviewSummary {
   }[];
 }
 
+export interface SkillFab {
+  skill_id: string;
+  fab_id: string;
+  created_at: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
@@ -258,8 +321,26 @@ export interface Skill {
   last_synced_at: string | null;
   created_at: string;
   updated_at: string;
+  fabs: SkillFab[];
 }
 
+export interface Fab {
+  id: string;
+  fab: string;
+}
+
+export interface McpFab {
+  mcp_id: string;
+  fab_id: string;
+  host: string;
+  status: AvailabilityStatus;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// host/status/last_synced_at moved to McpFab — an MCP is now deployed (and synced)
+// independently per fab rather than having one global host.
 export interface Mcp {
   id: string;
   name: string;
@@ -268,11 +349,9 @@ export interface Mcp {
   category: string | null;
   tags: string[];
   created_by: string;
-  host: string;
-  status: AvailabilityStatus;
-  last_synced_at: string | null;
   created_at: string;
   updated_at: string;
+  fabs: McpFab[];
 }
 
 export interface SyncResult<T> {
@@ -282,6 +361,11 @@ export interface SyncResult<T> {
   unavailable: number;
   items: T[];
 }
+
+// `changed` is true when this row's `status` flipped during the sync run that
+// produced it — lets the frontend highlight exactly what a sync touched.
+export type SkillSyncItem = Skill & { changed: boolean };
+export type McpSyncItem = Mcp & { fabs: (McpFab & { changed: boolean })[] };
 
 export interface AIModel {
   id: string;

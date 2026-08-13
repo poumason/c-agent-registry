@@ -22,17 +22,6 @@ async def list_by_version(db: AsyncSession, agent_slug: str) -> list[Review]:
     return list(result.scalars().all())
 
 
-async def list_mine(
-    db: AsyncSession, reviewer_id: uuid.UUID, *, pending_only: bool = False
-) -> list[Review]:
-    stmt = select(Review).where(Review.reviewer_id == reviewer_id)
-    if pending_only:
-        stmt = stmt.where(Review.result == ReviewResult.pending)
-    stmt = stmt.order_by(Review.created_at)
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
-
-
 async def has_review_for_agent(db: AsyncSession, reviewer_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
     """Whether this user has ever been assigned a review on any version of this agent.
 

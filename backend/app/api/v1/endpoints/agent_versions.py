@@ -11,11 +11,14 @@ from app.core.agent_access import (
 )
 from app.core.config import get_settings
 from app.core.deps import get_current_user
+from app.crud import agent_fab as agent_fab_crud
 from app.crud import agent_version as version_crud
 from app.db.base import get_db
 from app.models.enums import VersionStatus
 from app.models.user import User
+from app.schemas.agent_card import AgentCard
 from app.schemas.agent_version import AgentVersionCreate, AgentVersionRead, AgentVersionUpdate
+from app.services.agent_card import build_agent_card
 from app.services.storage import presigned_download_url
 
 router = APIRouter(tags=["agent-versions"])
@@ -44,7 +47,6 @@ async def create_version(
         slug=version_slug,
         agent_id=agent.id,
         version=version_number,
-        url=payload.url,
         streaming=payload.streaming,
         default_input_modes=payload.default_input_modes,
         default_output_modes=payload.default_output_modes,
@@ -88,14 +90,14 @@ async def update_version(
     agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
     await ensure_can_manage(db, agent, current_user)
     ensure_version_editable(agent_version)
-    if payload.url is not None:
-        agent_version.url = payload.url
     if payload.streaming is not None:
         agent_version.streaming = payload.streaming
     if payload.default_input_modes is not None:
         agent_version.default_input_modes = payload.default_input_modes
     if payload.default_output_modes is not None:
         agent_version.default_output_modes = payload.default_output_modes
+    if payload.skills is not None:
+        agent_version.skills = payload.skills
     agent_version.updated_by = current_user.id
     agent_version = await version_crud.save(db, agent_version)
     return AgentVersionRead.model_validate(agent_version)
@@ -144,6 +146,22 @@ async def deactivate_version(
     agent_version.updated_by = current_user.id
     agent_version = await version_crud.save(db, agent_version)
     return AgentVersionRead.model_validate(agent_version)
+
+
+@router.get("/versions/{version_slug}/agent-card", response_model=AgentCard)
+async def get_agent_card(
+    version_slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentCard:
+    """Assembles the A2A 1.0 agent card fresh on every request from Agent +
+    AgentVersion + AgentFab — see app/services/agent_card.py. Nothing here is
+    persisted; this is a read/projection endpoint only."""
+    agent_version = await get_version_or_404(db, version_slug)
+    agent = await get_agent_by_id_or_404(db, agent_version.agent_id)
+    await ensure_agent_visible(db, agent, current_user)
+    fabs = await agent_fab_crud.list_for_version(db, agent_version.slug)
+    return build_agent_card(agent, agent_version, fabs)
 
 
 @router.get("/versions/{version_slug}/download")

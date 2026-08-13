@@ -1,5 +1,13 @@
 import { apiClient } from "./client";
-import type { AgentDependency, AgentVersion, DependencySource, DependencyType } from "./types";
+import type {
+  AgentCard,
+  AgentCardSkillEntry,
+  AgentDependency,
+  AgentFab,
+  AgentVersion,
+  DependencySource,
+  DependencyType,
+} from "./types";
 
 export async function listVersions(agentSlug: string): Promise<AgentVersion[]> {
   const { data } = await apiClient.get<AgentVersion[]>(`/agents/${agentSlug}/versions`);
@@ -12,7 +20,6 @@ export async function getVersion(versionSlug: string): Promise<AgentVersion> {
 }
 
 export interface CreateVersionInput {
-  url?: string;
   streaming?: boolean;
   default_input_modes?: string[];
   default_output_modes?: string[];
@@ -20,7 +27,7 @@ export interface CreateVersionInput {
 
 export async function createVersion(
   agentSlug: string,
-  input: CreateVersionInput,
+  input: CreateVersionInput = {},
 ): Promise<AgentVersion> {
   const { data } = await apiClient.post<AgentVersion>(
     `/agents/${agentSlug}/versions`,
@@ -29,9 +36,13 @@ export async function createVersion(
   return data;
 }
 
+export interface UpdateVersionInput extends CreateVersionInput {
+  skills?: AgentCardSkillEntry[];
+}
+
 export async function updateVersion(
   versionSlug: string,
-  input: CreateVersionInput,
+  input: UpdateVersionInput,
 ): Promise<AgentVersion> {
   const { data } = await apiClient.patch<AgentVersion>(`/versions/${versionSlug}`, input);
   return data;
@@ -87,4 +98,27 @@ export async function removeDependency(
   dependencyRowId: string,
 ): Promise<void> {
   await apiClient.delete(`/versions/${versionSlug}/dependencies/${dependencyRowId}`);
+}
+
+export async function listVersionFabs(versionSlug: string): Promise<AgentFab[]> {
+  const { data } = await apiClient.get<AgentFab[]>(`/versions/${versionSlug}/fabs`);
+  return data;
+}
+
+export interface SetVersionFabsEntry {
+  fab_id: string;
+  url: string;
+}
+
+export async function setVersionFabs(
+  versionSlug: string,
+  fabs: SetVersionFabsEntry[],
+): Promise<AgentFab[]> {
+  const { data } = await apiClient.put<AgentFab[]>(`/versions/${versionSlug}/fabs`, { fabs });
+  return data;
+}
+
+export async function getAgentCard(versionSlug: string): Promise<AgentCard> {
+  const { data } = await apiClient.get<AgentCard>(`/versions/${versionSlug}/agent-card`);
+  return data;
 }

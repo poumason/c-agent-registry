@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.models.enums import AvailabilityStatus
+from app.schemas.skill_fab import SkillFabRead
 
 
 class SkillRead(BaseModel):
@@ -22,6 +23,16 @@ class SkillRead(BaseModel):
     last_synced_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # Which fabs this skill is available in — pure membership, no per-fab state (see
+    # SkillFab). Unlike MCP's per-fab host/status, Skill's own `status` above still
+    # means one thing globally (the MinIO object exists), fabs is purely "where is it
+    # allowed to be used".
+    fabs: list[SkillFabRead] = []
+
+
+class SkillSyncItem(SkillRead):
+    # True when `status` flipped during the sync run this item came back from.
+    changed: bool
 
 
 class SkillSyncResult(BaseModel):
@@ -29,4 +40,4 @@ class SkillSyncResult(BaseModel):
     total: int
     available: int
     unavailable: int
-    items: list[SkillRead]
+    items: list[SkillSyncItem]

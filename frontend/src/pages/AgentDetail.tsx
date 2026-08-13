@@ -28,6 +28,7 @@ import {
 import type { UpdateAgentInput } from "../api/agents";
 import type { AgentVersion } from "../api/types";
 import { createVersion, listVersions } from "../api/versions";
+import AgentFormFields from "../components/AgentFormFields";
 import { AssetRoleTag, VersionStatusTag, VisibilityTag } from "../components/tags";
 import { useFormatters } from "../lib/relativeTime";
 
@@ -39,10 +40,8 @@ export default function AgentDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [newVersionOpen, setNewVersionOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [inviteForm] = Form.useForm<{ user_id: string }>();
-  const [versionForm] = Form.useForm<{ url?: string }>();
   const [editForm] = Form.useForm<UpdateAgentInput>();
 
   const agentQuery = useQuery({
@@ -82,12 +81,12 @@ export default function AgentDetail() {
   });
 
   const createVersionMutation = useMutation({
-    mutationFn: (url?: string) => createVersion(slug!, { url }),
+    mutationFn: () => createVersion(slug!),
     onSuccess: (version) => {
       message.success(t("agentDetail.createVersionSuccess"));
       queryClient.invalidateQueries({ queryKey: ["agent-versions", slug] });
-      setNewVersionOpen(false);
-      versionForm.resetFields();
+      // Nothing left to fill in here anymore — deployment fabs, dependencies, and
+      // agent card skills are all set on the version's own detail page now.
       navigate(`/agents/${slug}/versions/${version.slug}`);
     },
     onError: () => message.error(t("agentDetail.createVersionFailed")),
@@ -162,6 +161,10 @@ export default function AgentDetail() {
                 description: agent.description ?? undefined,
                 provider: agent.provider ?? undefined,
                 visibility: agent.visibility,
+                icon_path: agent.icon_path ?? undefined,
+                category: agent.category,
+                hello_msg: agent.hello_msg ?? undefined,
+                example_questions: agent.example_questions,
               });
               setEditOpen(true);
             }}
@@ -181,7 +184,11 @@ export default function AgentDetail() {
             </Button>
           </Popconfirm>
           <Button onClick={() => setInviteOpen(true)}>{t("agentDetail.inviteMember")}</Button>
-          <Button type="primary" onClick={() => setNewVersionOpen(true)}>
+          <Button
+            type="primary"
+            loading={createVersionMutation.isPending}
+            onClick={() => createVersionMutation.mutate()}
+          >
             {t("agentDetail.addVersion")}
           </Button>
         </div>
@@ -282,6 +289,7 @@ export default function AgentDetail() {
               ]}
             />
           </Form.Item>
+          <AgentFormFields />
         </Form>
       </Modal>
 
@@ -302,25 +310,6 @@ export default function AgentDetail() {
             extra={t("agentDetail.inviteExtra")}
           >
             <Input placeholder="00000000-0000-0000-0000-000000000000" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={t("agentDetail.addVersionModalTitle")}
-        open={newVersionOpen}
-        onCancel={() => setNewVersionOpen(false)}
-        onOk={() => versionForm.submit()}
-        confirmLoading={createVersionMutation.isPending}
-        okText={t("agentDetail.createDraft")}
-        cancelText={t("common.cancel")}
-      >
-        <Form form={versionForm} layout="vertical" onFinish={(v) => createVersionMutation.mutate(v.url)}>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 16, whiteSpace: "pre-line" }}>
-            {t("agentDetail.addVersionDesc")}
-          </Typography.Paragraph>
-          <Form.Item label="Endpoint URL" name="url" extra={t("agentDetail.endpointUrlExtra")}>
-            <Input placeholder="https://agents.example.com/your-agent" />
           </Form.Item>
         </Form>
       </Modal>
