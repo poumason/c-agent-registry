@@ -9,7 +9,7 @@ from app.models.agent import Agent
 from app.models.agent_version import AgentVersion
 from app.models.ai_model import AIModel
 from app.models.enums import AssetRole, AvailabilityStatus, ReviewResult, UserRole, UserStatus, VersionStatus
-from app.models.mcp import MCP
+from app.models.mcp_fab import MCPFab
 from app.models.review import Review
 from app.models.user import User
 from app.models.user_agent_rel import UserAgentRel
@@ -296,6 +296,27 @@ async def _availability_status(db: AsyncSession, model) -> dict:
     }
 
 
+async def _mcp_fab_availability_status(db: AsyncSession) -> dict:
+    """MCP's own status/last_synced_at moved to MCPFab (availability is per-fab now,
+    see docs/registry-sync.md) — counts over (mcp, fab) deployment rows rather than
+    distinct MCPs, same convention as MCPSyncResult.total."""
+    total = (await db.execute(select(func.count()).select_from(MCPFab))).scalar_one()
+    unavailable = (
+        await db.execute(
+            select(func.count())
+            .select_from(MCPFab)
+            .where(MCPFab.status == AvailabilityStatus.unavailable)
+        )
+    ).scalar_one()
+    last_synced_at = (await db.execute(select(func.max(MCPFab.last_synced_at)))).scalar_one()
+    return {
+        "total_count": total,
+        "last_synced_at": last_synced_at,
+        "consecutive_failures": 0,
+        "stale_count": unavailable,
+    }
+
+
 async def get_stats(db: AsyncSession) -> dict:
     since = datetime.now(timezone.utc) - timedelta(days=TREND_WINDOW_DAYS)
     days = _day_range(TREND_WINDOW_DAYS)
@@ -319,7 +340,7 @@ async def get_stats(db: AsyncSession) -> dict:
     # for these two sources.
     registry_status = {
         "skillhub-registry": registry_crud.get_overview("skillhub-registry").status,
-        "mcp": await _availability_status(db, MCP),
+        "mcp": await _mcp_fab_availability_status(db),
         "model": await _availability_status(db, AIModel),
     }
 

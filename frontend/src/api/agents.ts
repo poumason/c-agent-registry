@@ -25,6 +25,10 @@ export interface CreateAgentInput {
   description?: string;
   provider?: string;
   visibility: AgentVisibility;
+  icon_path?: string;
+  category?: string[];
+  hello_msg?: string;
+  example_questions?: string[];
 }
 
 export async function createAgent(input: CreateAgentInput): Promise<Agent> {
@@ -37,6 +41,10 @@ export interface UpdateAgentInput {
   description?: string;
   provider?: string;
   visibility?: AgentVisibility;
+  icon_path?: string;
+  category?: string[];
+  hello_msg?: string;
+  example_questions?: string[];
 }
 
 export async function updateAgent(slug: string, input: UpdateAgentInput): Promise<Agent> {

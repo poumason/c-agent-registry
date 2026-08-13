@@ -38,6 +38,12 @@ async def create_agent(
         provider=payload.provider,
         visibility=payload.visibility,
         created_by=current_user.id,
+        icon_path=payload.icon_path,
+        category=payload.category,
+        hello_msg=payload.hello_msg,
+        example_questions=payload.example_questions,
+        audience=payload.audience,
+        doc_url=payload.doc_url,
     )
     # Creator becomes this agent's owner.
     await membership_crud.upsert_membership(
@@ -105,6 +111,12 @@ async def update_agent(
         description=payload.description,
         provider=payload.provider,
         visibility=payload.visibility,
+        icon_path=payload.icon_path,
+        category=payload.category,
+        hello_msg=payload.hello_msg,
+        example_questions=payload.example_questions,
+        audience=payload.audience,
+        doc_url=payload.doc_url,
     )
     return AgentRead.model_validate(agent)
 

@@ -1,16 +1,22 @@
 import io
 import json
+import uuid
 import zipfile
 
 import httpx
 import yaml
 
+from app.core.config import get_settings
+from app.crud import skill as skill_crud
 from app.models.enums import UserRole
+from app.services.storage import put_bytes
 from tests.conftest import auth_headers, login, make_user
+
+settings = get_settings()
 
 
 async def test_approval_generates_downloadable_package(client, db_session):
-    await make_user(db_session, email="pm@example.com", role=UserRole.member)
+    user = await make_user(db_session, email="pm@example.com", role=UserRole.member)
     reviewer = await make_user(db_session, email="po@example.com", role=UserRole.reviewer)
     member_token = await login(client, "pm@example.com")
     reviewer_token = await login(client, "po@example.com")
@@ -33,7 +39,6 @@ async def test_approval_generates_downloadable_package(client, db_session):
         "/api/v1/agents/pkg-agent/versions",
         headers=auth_headers(member_token),
         json={
-            "url": "https://agents.example.com/pkg",
             "streaming": True,
             "default_input_modes": ["text/plain"],
             "default_output_modes": ["text/plain"],
@@ -42,15 +47,25 @@ async def test_approval_generates_downloadable_package(client, db_session):
     assert resp.status_code == 201
     version_slug = resp.json()["slug"]
 
+    # There's no POST /skills anymore — skills arrive via sync now (see
+    # docs/registry-sync.md) — so tests seed directly via crud + MinIO, same as
+    # test_dependencies.py / test_registry_sync.py.
     skill_content = b"print('packaged skill')"
-    resp = await client.post(
-        "/api/v1/skills",
-        headers=auth_headers(member_token),
-        files={"file": ("run.py", skill_content, "text/plain")},
-        data={"name": "packaged-skill", "version": "2.0.0"},
+    object_name = "seed/packaged-skill/run.py"
+    put_bytes(settings.minio_skills_bucket, object_name, skill_content, "text/plain")
+    skill = await skill_crud.create_skill(
+        db_session,
+        id=uuid.uuid4(),
+        name="packaged-skill",
+        version="2.0.0",
+        description=None,
+        category=None,
+        tags=[],
+        created_by=user.id,
+        bucket_path=object_name,
+        mcp_dependency=[],
     )
-    assert resp.status_code == 201
-    skill_id = resp.json()["id"]
+    skill_id = str(skill.id)
 
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
@@ -99,9 +114,11 @@ async def test_approval_generates_downloadable_package(client, db_session):
         assert "skills/packaged-skill/run.py" in names
 
         agent_card = json.loads(zf.read("agent_card.json"))
-        assert agent_card["slug"] == "pkg-agent"
-        assert agent_card["streaming"] is True
-        assert agent_card["default_input_modes"] == ["text/plain"]
+        assert agent_card["name"] == "Package Agent"
+        assert agent_card["capabilities"]["streaming"] is True
+        assert agent_card["defaultInputModes"] == ["text/plain"]
+        # No fabs were deployed to for this version, so no interfaces yet.
+        assert agent_card["supportedInterfaces"] == []
 
         install_manifest = yaml.safe_load(zf.read("install.yaml"))
         assert install_manifest["skills"][0]["name"] == "packaged-skill"

@@ -4,8 +4,8 @@ import AppLayout from "./components/AppLayout";
 import AdminAgents from "./pages/AdminAgents";
 import AdminAgentSummary from "./pages/AdminAgentSummary";
 import AdminAgentTemplates from "./pages/AdminAgentTemplates";
+import AdminFabs from "./pages/AdminFabs";
 import AdminReviewSummary from "./pages/AdminReviewSummary";
-import AdminSkillHubRegistry from "./pages/AdminSkillHubRegistry";
 import AdminStats from "./pages/AdminStats";
 import AdminUsers from "./pages/AdminUsers";
 import AdminUserSummary from "./pages/AdminUserSummary";
@@ -15,10 +15,8 @@ import Login from "./pages/Login";
 import MyAgents from "./pages/MyAgents";
 import RegistryMcps from "./pages/RegistryMcps";
 import RegistryModels from "./pages/RegistryModels";
-import ReviewDetail from "./pages/ReviewDetail";
+import RegistrySkills from "./pages/RegistrySkills";
 import ReviewQueue from "./pages/ReviewQueue";
-import Reviews from "./pages/Reviews";
-import Skills from "./pages/Skills";
 import SsoCallback from "./pages/SsoCallback";
 import VersionDetail from "./pages/VersionDetail";
 
@@ -39,8 +37,6 @@ export default function App() {
         <Route path="/my-agents" element={<MyAgents />} />
         <Route path="/agents/:slug" element={<AgentDetail />} />
         <Route path="/agents/:agentSlug/versions/:versionSlug" element={<VersionDetail />} />
-        <Route path="/reviews" element={<Reviews />} />
-        <Route path="/reviews/:reviewId" element={<ReviewDetail />} />
         <Route path="/review-queue" element={<ReviewQueue />} />
         <Route
           path="/admin/review-summary"
@@ -50,7 +46,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/skills" element={<Skills />} />
+        <Route path="/registry/skills" element={<RegistrySkills />} />
         <Route path="/registry/mcps" element={<RegistryMcps />} />
         <Route path="/registry/models" element={<RegistryModels />} />
         <Route
@@ -94,10 +90,10 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/skillhub-registry"
+          path="/admin/fabs"
           element={
             <ProtectedRoute requireAdmin>
-              <AdminSkillHubRegistry />
+              <AdminFabs />
             </ProtectedRoute>
           }
         />

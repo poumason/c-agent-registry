@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { createAgent, listAgents } from "../api/agents";
 import type { AgentVisibility } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import AgentFormFields from "../components/AgentFormFields";
 import AgentsTable from "../components/AgentsTable";
 
 interface CreateAgentFormValues {
@@ -15,6 +16,10 @@ interface CreateAgentFormValues {
   description?: string;
   provider?: string;
   visibility: AgentVisibility;
+  icon_path?: string;
+  category?: string[];
+  hello_msg?: string;
+  example_questions?: string[];
 }
 
 export default function MyAgents() {
@@ -79,7 +84,7 @@ export default function MyAgents() {
           form={form}
           layout="vertical"
           onFinish={(values) => createMutation.mutate(values)}
-          initialValues={{ visibility: "private" }}
+          initialValues={{ visibility: "private", category: ["tool"] }}
         >
           <Form.Item
             label="Slug"
@@ -110,6 +115,7 @@ export default function MyAgents() {
               ]}
             />
           </Form.Item>
+          <AgentFormFields />
         </Form>
       </Modal>
     </div>

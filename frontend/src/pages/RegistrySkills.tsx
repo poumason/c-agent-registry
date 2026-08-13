@@ -1,22 +1,9 @@
-import { PlusOutlined, SyncOutlined, UploadOutlined } from "@ant-design/icons";
+import { CloseOutlined, SettingOutlined, SyncOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  App,
-  Button,
-  Form,
-  Input,
-  Modal,
-  Switch,
-  Table,
-  Tag,
-  Typography,
-  Upload,
-} from "antd";
-import type { UploadFile } from "antd/es/upload/interface";
+import { App, Button, Form, Modal, Select, Switch, Table, Tag, Typography } from "antd";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createSkill, listSkills, syncSkills } from "../api/skills";
-import type { CreateSkillInput } from "../api/skills";
+import { assignSkillFab, listFabs, listSkills, removeSkillFab, syncSkills } from "../api/skills";
 import type { Skill } from "../api/types";
 import { useFormatters } from "../lib/relativeTime";
 
@@ -25,30 +12,43 @@ export default function RegistrySkills() {
   const { formatDateTime } = useFormatters();
   const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
   const [showUnavailable, setShowUnavailable] = useState(false);
-  const [form] = Form.useForm<Omit<CreateSkillInput, "file"> & { file: UploadFile[] }>();
+  // Skill ids whose `status` flipped in the most recent sync run — cleared on the
+  // next fetch/sync so a stale highlight never lingers, same as RegistryMcps.
+  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+  const [manageTarget, setManageTarget] = useState<Skill | null>(null);
+  const [assignForm] = Form.useForm<{ fab_id: string }>();
 
   const { data: skills = [], isLoading } = useQuery({ queryKey: ["skills"], queryFn: listSkills });
-
-  const createMutation = useMutation({
-    mutationFn: createSkill,
-    onSuccess: () => {
-      message.success(t("registry.createSuccess", { item: "Skill" }));
-      queryClient.invalidateQueries({ queryKey: ["skills"] });
-      setCreateOpen(false);
-      form.resetFields();
-    },
-    onError: () => message.error(t("common.createFailed")),
-  });
+  const { data: fabs = [] } = useQuery({ queryKey: ["fabs"], queryFn: listFabs });
 
   const syncMutation = useMutation({
     mutationFn: syncSkills,
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["skills"] });
       message.success(t("registry.syncComplete", { available: result.available, unavailable: result.unavailable }));
+      setChangedIds(new Set(result.items.filter((i) => i.changed).map((i) => i.id)));
     },
     onError: () => message.error(t("common.syncFailed")),
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: (fabId: string) => assignSkillFab(manageTarget!.id, fabId),
+    onSuccess: () => {
+      message.success(t("registry.fabAssignSuccess"));
+      queryClient.invalidateQueries({ queryKey: ["skills"] });
+      assignForm.resetFields();
+    },
+    onError: () => message.error(t("registry.fabAssignFailed")),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (fabId: string) => removeSkillFab(manageTarget!.id, fabId),
+    onSuccess: () => {
+      message.success(t("registry.fabRemoveSuccess"));
+      queryClient.invalidateQueries({ queryKey: ["skills"] });
+    },
+    onError: () => message.error(t("common.removeFailed")),
   });
 
   const lastSyncedAt = useMemo(() => {
@@ -60,6 +60,11 @@ export default function RegistrySkills() {
   const availableCount = skills.filter((s) => s.status === "available").length;
   const unavailableCount = skills.length - availableCount;
   const visibleSkills = showUnavailable ? skills : skills.filter((s) => s.status === "available");
+
+  const liveManageTarget = manageTarget ? skills.find((s) => s.id === manageTarget.id) ?? null : null;
+  const unassignedFabs = liveManageTarget
+    ? fabs.filter((f) => !liveManageTarget.fabs.some((sf) => sf.fab_id === f.id))
+    : [];
 
   return (
     <div>
@@ -79,18 +84,13 @@ export default function RegistrySkills() {
           </Typography.Title>
           <Typography.Text type="secondary">{t("registry.skillDescription")}</Typography.Text>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Button
-            icon={<SyncOutlined spin={syncMutation.isPending} />}
-            loading={syncMutation.isPending}
-            onClick={() => syncMutation.mutate()}
-          >
-            {t("registry.sync")}
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            {t("registry.addSkill")}
-          </Button>
-        </div>
+        <Button
+          icon={<SyncOutlined spin={syncMutation.isPending} />}
+          loading={syncMutation.isPending}
+          onClick={() => syncMutation.mutate()}
+        >
+          {t("registry.sync")}
+        </Button>
       </div>
 
       <div
@@ -126,6 +126,7 @@ export default function RegistrySkills() {
         loading={isLoading}
         dataSource={visibleSkills}
         pagination={false}
+        rowClassName={(s: Skill) => (changedIds.has(s.id) ? "row-recently-changed" : "")}
         columns={[
           {
             title: t("common.name"),
@@ -141,66 +142,88 @@ export default function RegistrySkills() {
           {
             title: t("common.status"),
             dataIndex: "status",
-            render: (s: Skill["status"]) =>
-              s === "available" ? (
-                <Tag color="green">{t("registry.available")}</Tag>
-              ) : (
-                <Tag color="red">{t("registry.unavailable")}</Tag>
-              ),
+            render: (s: Skill["status"], row: Skill) => (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {s === "available" ? (
+                  <Tag color="green">{t("registry.available")}</Tag>
+                ) : (
+                  <Tag color="red">{t("registry.unavailable")}</Tag>
+                )}
+                {changedIds.has(row.id) && <Tag color="gold">{t("registry.recentlyChanged")}</Tag>}
+              </span>
+            ),
+          },
+          {
+            title: t("registry.fabsColumn"),
+            dataIndex: "fabs",
+            render: (fabsCol: Skill["fabs"]) => fabsCol.length,
           },
           {
             title: t("common.updatedAt"),
             dataIndex: "updated_at",
             render: (v: string) => formatDateTime(v),
           },
+          {
+            title: "",
+            key: "actions",
+            render: (_: unknown, r: Skill) => (
+              <Button size="small" icon={<SettingOutlined />} onClick={() => setManageTarget(r)}>
+                {t("registry.manageFabs")}
+              </Button>
+            ),
+          },
         ]}
       />
 
       <Modal
-        title={t("registry.addSkill")}
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        onOk={() => form.submit()}
-        confirmLoading={createMutation.isPending}
-        okText={t("registry.uploadOk")}
-        cancelText={t("common.cancel")}
+        title={liveManageTarget ? t("registry.manageFabsTitle", { name: liveManageTarget.name }) : ""}
+        open={!!manageTarget}
+        onCancel={() => setManageTarget(null)}
+        footer={null}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={(v) => {
-            const file = v.file?.[0]?.originFileObj as File | undefined;
-            if (!file) {
-              message.error(t("common.selectFile"));
-              return;
-            }
-            createMutation.mutate({ ...v, file });
-          }}
-        >
-          <Form.Item label={t("common.name")} name="name" rules={[{ required: true }]}>
-            <Input placeholder="pdf-ocr-extract" />
-          </Form.Item>
-          <Form.Item label={t("registry.versionLabel")} name="version" rules={[{ required: true }]}>
-            <Input placeholder="1.0.0" />
-          </Form.Item>
-          <Form.Item label={t("common.category")} name="category">
-            <Input placeholder="extraction" />
-          </Form.Item>
-          <Form.Item label={t("common.description")} name="description">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item
-            label={t("registry.fileLabel")}
-            name="file"
-            valuePropName="fileList"
-            getValueFromEvent={(e) => e?.fileList}
-            rules={[{ required: true, message: t("common.selectFile") }]}
-          >
-            <Upload beforeUpload={() => false} maxCount={1}>
-              <Button icon={<UploadOutlined />}>{t("registry.selectFileBtn")}</Button>
-            </Upload>
-          </Form.Item>
-        </Form>
+        {liveManageTarget && (
+          <>
+            {liveManageTarget.fabs.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                {liveManageTarget.fabs.map((f) => (
+                  <div
+                    key={f.fab_id}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 0" }}
+                  >
+                    <Tag>{fabs.find((fab) => fab.id === f.fab_id)?.fab ?? f.fab_id}</Tag>
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<CloseOutlined />}
+                      loading={removeMutation.isPending}
+                      onClick={() => removeMutation.mutate(f.fab_id)}
+                      aria-label={t("common.remove")}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            <Form
+              form={assignForm}
+              layout="vertical"
+              onFinish={(v) => assignMutation.mutate(v.fab_id)}
+              disabled={unassignedFabs.length === 0}
+            >
+              <Form.Item label={t("registry.fabLabel")} name="fab_id" rules={[{ required: true }]}>
+                <Select
+                  placeholder={
+                    unassignedFabs.length === 0 ? t("registry.allFabsAssigned") : t("common.select")
+                  }
+                  options={unassignedFabs.map((f) => ({ value: f.id, label: f.fab }))}
+                />
+              </Form.Item>
+              <Button htmlType="submit" type="primary" loading={assignMutation.isPending}>
+                {t("registry.assignFab")}
+              </Button>
+            </Form>
+          </>
+        )}
       </Modal>
     </div>
   );

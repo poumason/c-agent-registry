@@ -1,10 +1,11 @@
-import { DownloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   App,
   Breadcrumb,
   Button,
+  Checkbox,
   Empty,
   Form,
   Grid,
@@ -18,21 +19,25 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
-import { listSkills, listMcps } from "../api/skills";
+import { listFabs, listSkills, listMcps } from "../api/skills";
 import { getRegistryOverview } from "../api/registry";
-import { listReviewerCandidates, listVersionReviews } from "../api/reviews";
-import type { DependencySource, DependencyType } from "../api/types";
+import { decideReview, listReviewerCandidates, listVersionReviews } from "../api/reviews";
+import type { AgentCardSkillEntry, DependencySource, DependencyType } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 import {
   activateVersion,
   addDependency,
   deactivateVersion,
+  getAgentCard,
   getDownloadUrl,
   getVersion,
   listDependencies,
+  listVersionFabs,
   removeDependency,
+  setVersionFabs,
   submitVersion,
   updateVersion,
 } from "../api/versions";
@@ -43,6 +48,7 @@ export default function VersionDetail() {
   const { t } = useTranslation();
   const { formatDateTime } = useFormatters();
   const { message } = App.useApp();
+  const { user } = useAuth();
   const screens = Grid.useBreakpoint();
   const { agentSlug, versionSlug } = useParams<{ agentSlug: string; versionSlug: string }>();
   const queryClient = useQueryClient();
@@ -50,6 +56,11 @@ export default function VersionDetail() {
   const [depOpen, setDepOpen] = useState(false);
   const [submitForm] = Form.useForm<{ reviewer_ids: string[] }>();
   const [depForm] = Form.useForm<{ type: DependencyType; dependency_id: string }>();
+  const [skillsForm] = Form.useForm<{ skills: AgentCardSkillEntry[] }>();
+  const [decisionComments, setDecisionComments] = useState<Record<string, string>>({});
+  // checked[fab_id] -> url input value. Seeded from the saved agent_fabs once loaded
+  // (see the useEffect below), then edited freely until "Save" is pressed.
+  const [fabUrls, setFabUrls] = useState<Record<string, string>>({});
 
   const versionQuery = useQuery({
     queryKey: ["version", versionSlug],
@@ -82,6 +93,39 @@ export default function VersionDetail() {
     queryKey: ["reviewer-candidates"],
     queryFn: listReviewerCandidates,
   });
+  const fabsQuery = useQuery({ queryKey: ["fabs"], queryFn: listFabs });
+  const versionFabsQuery = useQuery({
+    queryKey: ["version-fabs", versionSlug],
+    queryFn: () => listVersionFabs(versionSlug!),
+    enabled: !!versionSlug,
+  });
+  const agentCardQuery = useQuery({
+    queryKey: ["agent-card", versionSlug],
+    queryFn: () => getAgentCard(versionSlug!),
+    enabled: !!versionSlug,
+  });
+
+  // Re-seed the checkbox/url editing state whenever the saved assignment changes
+  // (initial load, or after a successful save re-fetches it).
+  useEffect(() => {
+    if (versionFabsQuery.data) {
+      setFabUrls(Object.fromEntries(versionFabsQuery.data.map((f) => [f.fab_id, f.url ?? ""])));
+    }
+  }, [versionFabsQuery.data]);
+
+  useEffect(() => {
+    if (versionQuery.data) {
+      skillsForm.setFieldsValue({ skills: versionQuery.data.skills });
+    }
+  }, [versionQuery.data, skillsForm]);
+
+  // The dependency picker filters against the *saved* fab assignment, not whatever's
+  // currently checked-but-unsaved in the panel above — avoids the picker changing
+  // out from under the user mid-edit.
+  const savedFabIds = useMemo(
+    () => new Set((versionFabsQuery.data ?? []).map((f) => f.fab_id)),
+    [versionFabsQuery.data],
+  );
 
   const skillNameById = useMemo(
     () => new Map((skillsQuery.data ?? []).map((s) => [s.id, `${s.name} v${s.version}`])),
@@ -95,6 +139,16 @@ export default function VersionDetail() {
     () => new Map((skillhubRegistryQuery.data?.items ?? []).map((i) => [i.id, i.name])),
     [skillhubRegistryQuery.data],
   );
+  // Pending reviews the current user can act on right now — mirrors decide_review's
+  // own permission check (assigned reviewer, or admin overriding anyone's). Once the
+  // version leaves in_review (someone already decided), nothing is actionable even if
+  // a row is still technically "pending" (the other assigned reviewers never got to).
+  const actionableReviews = useMemo(() => {
+    if (!user || versionQuery.data?.status !== "in_review") return [];
+    return (reviewsQuery.data ?? []).filter(
+      (r) => r.result === "pending" && (r.reviewer_id === user.id || user.role === "admin"),
+    );
+  }, [reviewsQuery.data, versionQuery.data?.status, user]);
   const invalidateVersion = () => {
     queryClient.invalidateQueries({ queryKey: ["version", versionSlug] });
     queryClient.invalidateQueries({ queryKey: ["agent-versions", agentSlug] });
@@ -110,6 +164,20 @@ export default function VersionDetail() {
       submitForm.resetFields();
     },
     onError: () => message.error(t("versionDetail.submitFailed")),
+  });
+
+  const decisionMutation = useMutation({
+    mutationFn: ({ reviewId, result }: { reviewId: string; result: "approved" | "rejected" }) =>
+      decideReview(reviewId, result, decisionComments[reviewId]?.trim() || undefined),
+    onSuccess: () => {
+      message.success(t("versionDetail.decisionSuccess"));
+      invalidateVersion();
+      queryClient.invalidateQueries({ queryKey: ["version-reviews", versionSlug] });
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(msg ?? t("versionDetail.decisionFailed"));
+    },
   });
 
   const activateMutation = useMutation({
@@ -161,13 +229,39 @@ export default function VersionDetail() {
   });
 
   const saveParamsMutation = useMutation({
-    mutationFn: (values: { url?: string; streaming?: boolean }) =>
-      updateVersion(versionSlug!, values),
+    mutationFn: (values: { streaming?: boolean }) => updateVersion(versionSlug!, values),
     onSuccess: () => {
       message.success(t("versionDetail.saveSuccess"));
       invalidateVersion();
     },
     onError: () => message.error(t("versionDetail.saveFailed")),
+  });
+
+  const saveFabsMutation = useMutation({
+    mutationFn: () =>
+      setVersionFabs(
+        versionSlug!,
+        Object.entries(fabUrls).map(([fab_id, url]) => ({ fab_id, url })),
+      ),
+    onSuccess: () => {
+      message.success(t("versionDetail.fabsSaveSuccess"));
+      queryClient.invalidateQueries({ queryKey: ["version-fabs", versionSlug] });
+      queryClient.invalidateQueries({ queryKey: ["agent-card", versionSlug] });
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(msg ?? t("versionDetail.fabsSaveFailed"));
+    },
+  });
+
+  const saveSkillsMutation = useMutation({
+    mutationFn: (skills: AgentCardSkillEntry[]) => updateVersion(versionSlug!, { skills }),
+    onSuccess: () => {
+      message.success(t("versionDetail.skillsSaveSuccess"));
+      invalidateVersion();
+      queryClient.invalidateQueries({ queryKey: ["agent-card", versionSlug] });
+    },
+    onError: () => message.error(t("versionDetail.skillsSaveFailed")),
   });
 
   if (versionQuery.isLoading || !versionQuery.data) {
@@ -261,6 +355,70 @@ export default function VersionDetail() {
         />
       )}
 
+      {actionableReviews.length > 0 && (
+        <div
+          style={{
+            background: "var(--card-bg)",
+            border: "1px solid var(--color-brand)",
+            borderRadius: 8,
+            padding: 20,
+            marginBottom: 18,
+          }}
+        >
+          <Typography.Title level={5} style={{ marginBottom: 6 }}>
+            {t("versionDetail.pendingDecisionTitle")}
+          </Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block", marginBottom: 14 }}>
+            {t("versionDetail.pendingDecisionDesc")}
+          </Typography.Text>
+          <Space orientation="vertical" style={{ width: "100%" }} size={16}>
+            {actionableReviews.map((r, idx) => {
+              const comment = decisionComments[r.id] ?? "";
+              const isMine = r.reviewer_id === user?.id;
+              return (
+                <div
+                  key={r.id}
+                  style={idx > 0 ? { borderTop: "1px solid var(--border-default)", paddingTop: 14 } : undefined}
+                >
+                  {!isMine && (
+                    <div style={{ fontSize: 12, color: "var(--fg-subtle)", marginBottom: 6 }}>
+                      {t("versionDetail.decidingAsAdminFor", { reviewer: r.reviewer_id.slice(0, 8) })}
+                    </div>
+                  )}
+                  <Input.TextArea
+                    rows={3}
+                    placeholder={t("versionDetail.decisionCommentPlaceholder")}
+                    value={comment}
+                    onChange={(e) => setDecisionComments((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                    style={{ marginBottom: 10 }}
+                  />
+                  <Space>
+                    <Button
+                      type="primary"
+                      loading={decisionMutation.isPending}
+                      onClick={() => decisionMutation.mutate({ reviewId: r.id, result: "approved" })}
+                    >
+                      {t("versionDetail.approve")}
+                    </Button>
+                    <Button
+                      danger
+                      loading={decisionMutation.isPending}
+                      disabled={!comment.trim()}
+                      onClick={() => decisionMutation.mutate({ reviewId: r.id, result: "rejected" })}
+                    >
+                      {t("versionDetail.reject")}
+                    </Button>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {t("versionDetail.rejectRequiresComment")}
+                    </Typography.Text>
+                  </Space>
+                </div>
+              );
+            })}
+          </Space>
+        </div>
+      )}
+
       <div
         style={{
           display: "grid",
@@ -276,13 +434,10 @@ export default function VersionDetail() {
             </Typography.Title>
             <Form
               layout="vertical"
-              initialValues={{ url: version.url ?? "", streaming: version.streaming }}
+              initialValues={{ streaming: version.streaming }}
               onFinish={(v) => saveParamsMutation.mutate(v)}
               disabled={!isEditable}
             >
-              <Form.Item label="Endpoint URL" name="url">
-                <Input placeholder="https://agents.example.com/your-agent" />
-              </Form.Item>
               <Form.Item label="Streaming" name="streaming" valuePropName="checked">
                 <Switch />
               </Form.Item>
@@ -309,6 +464,129 @@ export default function VersionDetail() {
               {isEditable && (
                 <Button htmlType="submit" loading={saveParamsMutation.isPending}>
                   {t("versionDetail.saveParams")}
+                </Button>
+              )}
+            </Form>
+          </div>
+
+          <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20, marginBottom: 18 }}>
+            <Typography.Title level={5} style={{ marginBottom: 6 }}>
+              {t("versionDetail.fabsTitle")}
+            </Typography.Title>
+            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+              {t("versionDetail.fabsDesc")}
+            </Typography.Text>
+            <div style={{ marginTop: 14, marginBottom: 14 }}>
+              {(fabsQuery.data ?? []).map((fab) => {
+                const checked = fab.id in fabUrls;
+                return (
+                  <div key={fab.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <Checkbox
+                      checked={checked}
+                      disabled={!isEditable}
+                      onChange={(e) => {
+                        setFabUrls((prev) => {
+                          const next = { ...prev };
+                          if (e.target.checked) next[fab.id] = next[fab.id] ?? "";
+                          else delete next[fab.id];
+                          return next;
+                        });
+                      }}
+                    >
+                      {fab.fab}
+                    </Checkbox>
+                    <Input
+                      placeholder="https://agents.example.com/your-agent"
+                      value={fabUrls[fab.id] ?? ""}
+                      disabled={!isEditable || !checked}
+                      onChange={(e) => setFabUrls((prev) => ({ ...prev, [fab.id]: e.target.value }))}
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                );
+              })}
+              {(fabsQuery.data ?? []).length === 0 && (
+                <Typography.Text type="secondary">{t("versionDetail.fabsEmpty")}</Typography.Text>
+              )}
+            </div>
+            {isEditable && (
+              <Button
+                onClick={() => saveFabsMutation.mutate()}
+                loading={saveFabsMutation.isPending}
+                disabled={Object.entries(fabUrls).some(([, url]) => !url.trim())}
+              >
+                {t("versionDetail.fabsSave")}
+              </Button>
+            )}
+          </div>
+
+          <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20, marginBottom: 18 }}>
+            <Typography.Title level={5} style={{ marginBottom: 6 }}>
+              {t("versionDetail.skillsEditorTitle")}
+            </Typography.Title>
+            <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block", marginBottom: 14 }}>
+              {t("versionDetail.skillsEditorDesc")}
+            </Typography.Text>
+            <Form
+              form={skillsForm}
+              layout="vertical"
+              disabled={!isEditable}
+              onFinish={(v: { skills?: AgentCardSkillEntry[] }) => saveSkillsMutation.mutate(v.skills ?? [])}
+            >
+              <Form.List name="skills">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...rest }) => (
+                      <div
+                        key={key}
+                        style={{ border: "1px solid var(--border-default)", borderRadius: 8, padding: 14, marginBottom: 12 }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <Button type="text" danger size="small" icon={<MinusCircleOutlined />} onClick={() => remove(name)}>
+                            {t("common.remove")}
+                          </Button>
+                        </div>
+                        <Form.Item {...rest} label="ID" name={[name, "id"]} rules={[{ required: true }]}>
+                          <Input placeholder="route-optimizer-traffic" />
+                        </Form.Item>
+                        <Form.Item {...rest} label={t("common.name")} name={[name, "name"]} rules={[{ required: true }]}>
+                          <Input placeholder="Traffic-Aware Route Optimizer" />
+                        </Form.Item>
+                        <Form.Item {...rest} label={t("common.description")} name={[name, "description"]}>
+                          <Input.TextArea rows={2} />
+                        </Form.Item>
+                        <Form.Item {...rest} label={t("versionDetail.skillTagsLabel")} name={[name, "tags"]}>
+                          <Select mode="tags" tokenSeparators={[","]} open={false} />
+                        </Form.Item>
+                        <Form.Item {...rest} label={t("versionDetail.skillExamplesLabel")} name={[name, "examples"]}>
+                          <Select mode="tags" tokenSeparators={["\n"]} open={false} placeholder={t("versionDetail.examplesPlaceholder")} />
+                        </Form.Item>
+                        <Form.Item {...rest} label={t("versionDetail.skillInputModesLabel")} name={[name, "inputModes"]}>
+                          <Select mode="tags" tokenSeparators={[","]} open={false} placeholder="application/json" />
+                        </Form.Item>
+                        <Form.Item {...rest} label={t("versionDetail.skillOutputModesLabel")} name={[name, "outputModes"]}>
+                          <Select mode="tags" tokenSeparators={[","]} open={false} placeholder="application/json" />
+                        </Form.Item>
+                      </div>
+                    ))}
+                    {isEditable && (
+                      <Button
+                        type="dashed"
+                        block
+                        icon={<PlusOutlined />}
+                        onClick={() =>
+                          add({ id: "", name: "", description: "", tags: [], examples: [], inputModes: [], outputModes: [] })
+                        }
+                      >
+                        {t("versionDetail.addSkillCard")}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </Form.List>
+              {isEditable && (
+                <Button htmlType="submit" type="primary" style={{ marginTop: 14 }} loading={saveSkillsMutation.isPending}>
+                  {t("versionDetail.skillsSave")}
                 </Button>
               )}
             </Form>
@@ -384,6 +662,34 @@ export default function VersionDetail() {
             <Empty description={t("versionDetail.reviewHistoryEmpty")} image={Empty.PRESENTED_IMAGE_SIMPLE} />
           )}
         </div>
+
+        <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20, marginTop: 18 }}>
+          <Typography.Title level={5} style={{ marginBottom: 6 }}>
+            {t("versionDetail.agentCardTitle")}
+          </Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block", marginBottom: 14 }}>
+            {t("versionDetail.agentCardDesc")}
+          </Typography.Text>
+          {agentCardQuery.data ? (
+            <pre
+              style={{
+                background: "var(--bg-surface-2)",
+                border: "1px solid var(--border-default)",
+                borderRadius: 6,
+                padding: 12,
+                fontSize: 11.5,
+                overflowX: "auto",
+                maxHeight: 420,
+                overflowY: "auto",
+                marginBottom: 0,
+              }}
+            >
+              {JSON.stringify(agentCardQuery.data, null, 2)}
+            </pre>
+          ) : (
+            <Spin size="small" />
+          )}
+        </div>
       </div>
 
       <Modal
@@ -454,24 +760,26 @@ export default function VersionDetail() {
             {({ getFieldValue }) => {
               const type: DependencyType = getFieldValue("type");
               // MCP no longer has a separate "registry" source — it resolves against
-              // the mcps table directly, now filtered to available (synced) ones, same
-              // as the reference PR's approach. Skill keeps the legacy/registry group
-              // split (SkillHub Registry is still a distinct external mirror), and also
-              // picks up the same available-only filter on its legacy group now that
-              // Skill carries a status field too.
+              // the mcps table directly. Skill keeps the legacy/registry group split
+              // (SkillHub Registry is still a distinct external mirror, with no fab
+              // concept of its own — left unfiltered). Both legacy groups are now
+              // filtered to items available in at least one fab *this version is
+              // itself deployed to* (savedFabIds), not just "available somewhere" —
+              // an agent can't reach a dependency deployed to a fab it isn't in.
+              const fabHint = savedFabIds.size === 0 ? t("versionDetail.noFabsSelectedHint") : undefined;
               if (type === "mcp") {
                 const mcpOptions = (mcpsQuery.data ?? [])
-                  .filter((m) => m.status === "available")
+                  .filter((m) => m.fabs.some((f) => savedFabIds.has(f.fab_id) && f.status === "available"))
                   .map((m) => ({ value: `legacy:${m.id}`, label: `${m.name} v${m.version}` }));
                 return (
-                  <Form.Item label="MCP" name="dependency_id" rules={[{ required: true }]}>
+                  <Form.Item label="MCP" name="dependency_id" rules={[{ required: true }]} extra={fabHint}>
                     <Select options={mcpOptions} placeholder={t("common.select")} showSearch optionFilterProp="label" />
                   </Form.Item>
                 );
               }
 
               const legacyOptions = (skillsQuery.data ?? [])
-                .filter((s) => s.status === "available")
+                .filter((s) => s.status === "available" && s.fabs.some((f) => savedFabIds.has(f.fab_id)))
                 .map((s) => ({ value: `legacy:${s.id}`, label: `${s.name} v${s.version}` }));
               const registryOptions = (skillhubRegistryQuery.data?.items ?? []).map((i) => ({
                 value: `registry:${i.id}`,
@@ -482,7 +790,7 @@ export default function VersionDetail() {
                 { label: t("versionDetail.skillHubSynced"), options: registryOptions },
               ];
               return (
-                <Form.Item label="Skill" name="dependency_id" rules={[{ required: true }]}>
+                <Form.Item label="Skill" name="dependency_id" rules={[{ required: true }]} extra={fabHint}>
                   <Select options={groupedOptions} placeholder={t("common.select")} showSearch optionFilterProp="label" />
                 </Form.Item>
               );

@@ -48,16 +48,19 @@ class ReviewResult(str, enum.Enum):
 class DependencyType(str, enum.Enum):
     skill = "skill"
     mcp = "mcp"
+    model = "model"
 
 
 class DependencySource(str, enum.Enum):
     """Which table/store `AgentDependency.dependency_id` resolves against.
 
-    legacy = the first-party skills/mcps tables (Skills & MCP's upload flow).
+    legacy = the first-party skills/mcps/ai_models tables (Skills & MCP's upload
+    flow, and the ai_models registry).
     registry = an item mirrored into the SkillHub Registry page via external sync
-    (see app/crud/registry.py). Skill-only — MCP dependencies resolve against the
-    mcps table directly (see AvailabilityStatus below), there's no separate "MCP
-    registry" mirror; Agent Templates and Model aren't dependency types at all.
+    (see app/crud/registry.py). Skill-only — MCP and Model dependencies resolve
+    against the mcps/ai_models tables directly (see AvailabilityStatus below),
+    there's no separate "MCP registry" or "Model registry" mirror; Agent
+    Templates aren't a dependency type at all.
     """
 
     legacy = "legacy"
