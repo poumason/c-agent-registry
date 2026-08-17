@@ -1,6 +1,6 @@
 # 0011 — Agent Version 依賴的同廠區（Fab）強制驗證
 
-**Commit**: _(尚未 commit)_ · 2026-08-17
+**Commit**: `244d2fd` · 2026-08-17
 
 ## 做了什麼
 
