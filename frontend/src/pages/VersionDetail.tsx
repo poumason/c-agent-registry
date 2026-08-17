@@ -763,13 +763,22 @@ export default function VersionDetail() {
               // the mcps table directly. Skill keeps the legacy/registry group split
               // (SkillHub Registry is still a distinct external mirror, with no fab
               // concept of its own — left unfiltered). Both legacy groups are now
-              // filtered to items available in at least one fab *this version is
-              // itself deployed to* (savedFabIds), not just "available somewhere" —
-              // an agent can't reach a dependency deployed to a fab it isn't in.
+              // filtered to items available in *every* fab this version is deployed
+              // to (savedFabIds must be a subset of the item's available fabs), not
+              // just some overlap — matches the backend's coverage rule in
+              // app/services/fab_scope.py: a version's dependencies must reach every
+              // fab it's deployed to, or that fab's deployment silently lacks it.
+              // A version with no fabs selected yet is unrestricted (vacuous subset).
               const fabHint = savedFabIds.size === 0 ? t("versionDetail.noFabsSelectedHint") : undefined;
+              const coversDeployedFabs = (availableFabIds: Set<string>) =>
+                [...savedFabIds].every((fabId) => availableFabIds.has(fabId));
               if (type === "mcp") {
                 const mcpOptions = (mcpsQuery.data ?? [])
-                  .filter((m) => m.fabs.some((f) => savedFabIds.has(f.fab_id) && f.status === "available"))
+                  .filter((m) =>
+                    coversDeployedFabs(
+                      new Set(m.fabs.filter((f) => f.status === "available").map((f) => f.fab_id)),
+                    ),
+                  )
                   .map((m) => ({ value: `legacy:${m.id}`, label: `${m.name} v${m.version}` }));
                 return (
                   <Form.Item label="MCP" name="dependency_id" rules={[{ required: true }]} extra={fabHint}>
@@ -779,7 +788,11 @@ export default function VersionDetail() {
               }
 
               const legacyOptions = (skillsQuery.data ?? [])
-                .filter((s) => s.status === "available" && s.fabs.some((f) => savedFabIds.has(f.fab_id)))
+                .filter(
+                  (s) =>
+                    s.status === "available" &&
+                    coversDeployedFabs(new Set(s.fabs.map((f) => f.fab_id))),
+                )
                 .map((s) => ({ value: `legacy:${s.id}`, label: `${s.name} v${s.version}` }));
               const registryOptions = (skillhubRegistryQuery.data?.items ?? []).map((i) => ({
                 value: `registry:${i.id}`,

@@ -12,6 +12,8 @@ from app.core.agent_access import (
 )
 from app.core.deps import get_current_user
 from app.crud import agent_dependency as dependency_crud
+from app.crud import ai_model as ai_model_crud
+from app.crud import fab as fab_crud
 from app.crud import mcp as mcp_crud
 from app.crud import registry as registry_crud
 from app.crud import skill as skill_crud
@@ -19,6 +21,7 @@ from app.db.base import get_db
 from app.models.enums import DependencySource, DependencyType
 from app.models.user import User
 from app.schemas.agent_dependency import AgentDependencyCreate, AgentDependencyRead
+from app.services import fab_scope
 
 router = APIRouter(tags=["dependencies"])
 
@@ -69,8 +72,10 @@ async def add_dependency(
         else:
             if payload.type == DependencyType.skill:
                 exists = await skill_crud.get_by_id(db, legacy_id)
-            else:
+            elif payload.type == DependencyType.mcp:
                 exists = await mcp_crud.get_by_id(db, legacy_id)
+            else:
+                exists = await ai_model_crud.get_by_id(db, legacy_id)
     else:
         registry_source = _REGISTRY_SOURCE_BY_TYPE.get(payload.type)
         if registry_source is None:
@@ -83,6 +88,27 @@ async def add_dependency(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{payload.source.value} {payload.type.value} {payload.dependency_id} not found",
+        )
+
+    # A version's dependency set must cover every fab the version is deployed to
+    # (see app/services/fab_scope.py) — reject a candidate that isn't available in
+    # one of them rather than silently letting a fab's deployment go unfulfilled.
+    missing_fab_ids = await fab_scope.uncovered_fabs_for_new_dependency(
+        db,
+        agent_version_slug=agent_version.slug,
+        type=payload.type,
+        dependency_id=payload.dependency_id,
+        source=payload.source,
+    )
+    if missing_fab_ids:
+        fabs_by_id = {f.id: f.fab for f in await fab_crud.list_fabs(db)}
+        names = ", ".join(sorted(fabs_by_id.get(fid, str(fid)) for fid in missing_fab_ids))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{payload.type.value} {payload.dependency_id} is not available in "
+                f"fab(s) this version is deployed to: {names}"
+            ),
         )
 
     dependency = await dependency_crud.create_dependency(

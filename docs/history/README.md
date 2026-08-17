@@ -16,3 +16,4 @@
 | 0008 | [`f3a1179`](0008-close-permission-gaps.md) | 2026-08-06 | 補齊使用者/agent 權限落差：軟刪除、agent 編輯、送審 fallback、打包路徑、角色調整 UI |
 | 0009 | [`0f71324`](0009-erd-sync-with-live-schema.md) | 2026-08-10 | idea.drawio 的 ERD 同步成目前 PostgreSQL 的實際 schema |
 | 0010 | [`9445703`](0010-registry-sync.md) | 2026-08-10 | 新增 Registry 分類（Skill/MCP/Model）+ 同步機制，agent version 依賴選單改為只列可用項目 |
+| 0011 | _(尚未 commit)_ | 2026-08-17 | Agent version 依賴的同廠區（fab）強制驗證：新增依賴/變更部署廠區都要通過覆蓋檢查 |
