@@ -17,4 +17,4 @@
 | 0009 | [`0f71324`](0009-erd-sync-with-live-schema.md) | 2026-08-10 | idea.drawio 的 ERD 同步成目前 PostgreSQL 的實際 schema |
 | 0010 | [`9445703`](0010-registry-sync.md) | 2026-08-10 | 新增 Registry 分類（Skill/MCP/Model）+ 同步機制，agent version 依賴選單改為只列可用項目 |
 | 0011 | [`244d2fd`](0011-fab-scoped-dependency-validation.md) | 2026-08-17 | Agent version 依賴的同廠區（fab）強制驗證：新增依賴/變更部署廠區都要通過覆蓋檢查 |
-| 0012 | [`尚未 commit`](0012-fab-scoped-agent-dependencies.md) | 2026-08-18 | Agent Dependency 的 fab 級別分流：同一個 version 能對不同 fab 用不同 skill/mcp |
+| 0012 | [`da65993`](0012-fab-scoped-agent-dependencies.md) | 2026-08-18 | Agent Dependency 的 fab 級別分流：同一個 version 能對不同 fab 用不同 skill/mcp |

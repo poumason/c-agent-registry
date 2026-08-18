@@ -1,6 +1,6 @@
 # 0012 — Agent Dependency 的 Fab 級別分流
 
-**Commit**: _(尚未 commit)_ · 2026-08-18
+**Commit**: `da65993` · 2026-08-18
 
 ## 做了什麼
 
