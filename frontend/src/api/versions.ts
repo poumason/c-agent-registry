@@ -85,10 +85,11 @@ export async function addDependency(
   dependencyId: string,
   type: DependencyType,
   source: DependencySource = "legacy",
+  fabId?: string | null,
 ): Promise<AgentDependency> {
   const { data } = await apiClient.post<AgentDependency>(
     `/versions/${versionSlug}/dependencies`,
-    { dependency_id: dependencyId, type, source },
+    { dependency_id: dependencyId, type, source, fab_id: fabId ?? null },
   );
   return data;
 }

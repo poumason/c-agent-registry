@@ -34,6 +34,13 @@ async def generate_package_for_version(
     ensure_buckets()
 
     dependencies = await dependency_crud.list_by_version(db, agent_version.slug)
+    # A dependency can now have multiple rows — one per fab it's scoped to (see
+    # app/services/fab_scope.py) — but there's still exactly one package per
+    # version, not per fab, so collapse back to one entry per logical dependency
+    # before building the manifest/zip.
+    dependencies = list(
+        {(d.type, d.source, d.dependency_id): d for d in dependencies}.values()
+    )
 
     skill_entries: list[dict] = []
     mcp_entries: list[dict] = []

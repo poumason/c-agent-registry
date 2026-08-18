@@ -388,5 +388,6 @@ export interface AgentDependency {
   dependency_id: string;
   type: DependencyType;
   source: DependencySource;
+  fab_id: string | null;
   created_at: string;
 }

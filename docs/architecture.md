@@ -80,3 +80,9 @@ ERD 上 `Agent_Dependency` 有 `dependency_id` + `type` 兩個欄位，同時有
 依 `type` 指向 `skills.id` 或 `mcps.id`。因為指向的表不固定，資料庫層沒有外鍵約束，改在
 `POST /versions/{version_slug}/dependencies` 這一層用程式驗證 `dependency_id` 真的存在於對應的表
 （`backend/app/api/v1/endpoints/dependencies.py`）。
+
+`fab_id`（nullable，真的有 FK，指向 `fabs.id`）則是另一個維度：讓同一個 agent version 對不同 fab
+呈現不同的依賴組合，而不是整個 version 只有一份、套用到它部署的每個 fab。NULL 只有一種意思——這
+筆依賴沒有 fab 維度（`type=model`／`source=registry`，或 version 目前沒有部署任何 fab）；一旦
+version 部署了 fab，legacy skill/mcp 依賴就必須指向其中一個。細節與設計取捨見
+[history/0012](history/0012-fab-scoped-agent-dependencies.md)。

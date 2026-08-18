@@ -13,6 +13,9 @@ class AgentDependencyCreate(BaseModel):
     # (resolve against the first-party skills/mcps tables) without requiring every
     # caller to know about the registry migration.
     source: DependencySource = DependencySource.legacy
+    # Required once the version is deployed to 1+ fabs (for legacy skill/mcp
+    # dependencies); omitted otherwise. See app/services/fab_scope.py.
+    fab_id: uuid.UUID | None = None
 
 
 class AgentDependencyRead(BaseModel):
@@ -23,4 +26,5 @@ class AgentDependencyRead(BaseModel):
     dependency_id: str
     type: DependencyType
     source: DependencySource
+    fab_id: uuid.UUID | None
     created_at: datetime

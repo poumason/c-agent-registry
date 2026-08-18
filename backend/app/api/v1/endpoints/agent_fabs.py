@@ -14,7 +14,6 @@ from app.crud import fab as fab_crud
 from app.db.base import get_db
 from app.models.user import User
 from app.schemas.agent_fab import AgentFabRead, AgentFabSetRequest
-from app.services import fab_scope
 
 router = APIRouter(tags=["agent-fabs"])
 
@@ -57,25 +56,10 @@ async def set_version_fabs(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Fab {entry.fab_id} not found"
             )
 
-    # Deploying to a fab where an existing dependency isn't available would leave
-    # that fab's deployment silently broken — reject the whole set-fabs call rather
-    # than let it happen (see app/services/fab_scope.py).
-    uncovered = await fab_scope.dependencies_uncovered_by(
-        db, agent_version_slug=agent_version.slug, fab_ids=seen_fab_ids
-    )
-    if uncovered:
-        fabs_by_id = {f.id: f.fab for f in await fab_crud.list_fabs(db)}
-        parts = [
-            f"{dep.type.value} {dep.dependency_id} missing in "
-            + ", ".join(sorted(fabs_by_id.get(fid, str(fid)) for fid in missing))
-            for dep, missing in uncovered
-        ]
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Existing dependencies not available in the requested fab(s): "
-            + "; ".join(parts),
-        )
-
+    # No cross-check against agent_dependencies here anymore: dependencies are now
+    # scoped per fab (see app/services/fab_scope.py), so deploying to a new fab
+    # legitimately starts it out with no dependencies of its own — same as a
+    # freshly created version.
     rows = await agent_fab_crud.replace_for_version(
         db, agent_version.slug, [(e.fab_id, e.url) for e in payload.fabs]
     )

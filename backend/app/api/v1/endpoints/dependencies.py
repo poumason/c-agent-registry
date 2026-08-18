@@ -13,7 +13,6 @@ from app.core.agent_access import (
 from app.core.deps import get_current_user
 from app.crud import agent_dependency as dependency_crud
 from app.crud import ai_model as ai_model_crud
-from app.crud import fab as fab_crud
 from app.crud import mcp as mcp_crud
 from app.crud import registry as registry_crud
 from app.crud import skill as skill_crud
@@ -90,25 +89,29 @@ async def add_dependency(
             detail=f"{payload.source.value} {payload.type.value} {payload.dependency_id} not found",
         )
 
-    # A version's dependency set must cover every fab the version is deployed to
-    # (see app/services/fab_scope.py) — reject a candidate that isn't available in
-    # one of them rather than silently letting a fab's deployment go unfulfilled.
-    missing_fab_ids = await fab_scope.uncovered_fabs_for_new_dependency(
+    # Validate/resolve which fab (if any) this dependency is scoped to — see
+    # app/services/fab_scope.py. Raises 400/409 on any violation.
+    resolved_fab_id = await fab_scope.resolve_dependency_fab_id(
         db,
         agent_version_slug=agent_version.slug,
         type=payload.type,
         dependency_id=payload.dependency_id,
         source=payload.source,
+        requested_fab_id=payload.fab_id,
     )
-    if missing_fab_ids:
-        fabs_by_id = {f.id: f.fab for f in await fab_crud.list_fabs(db)}
-        names = ", ".join(sorted(fabs_by_id.get(fid, str(fid)) for fid in missing_fab_ids))
+
+    if await dependency_crud.get_existing(
+        db,
+        agent_slug=agent_version.slug,
+        dependency_id=payload.dependency_id,
+        type=payload.type,
+        source=payload.source,
+        fab_id=resolved_fab_id,
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"{payload.type.value} {payload.dependency_id} is not available in "
-                f"fab(s) this version is deployed to: {names}"
-            ),
+            detail=f"{payload.type.value} {payload.dependency_id} is already a dependency"
+            + (f" for fab {resolved_fab_id}" if resolved_fab_id else ""),
         )
 
     dependency = await dependency_crud.create_dependency(
@@ -117,6 +120,7 @@ async def add_dependency(
         dependency_id=payload.dependency_id,
         type=payload.type,
         source=payload.source,
+        fab_id=resolved_fab_id,
     )
     return AgentDependencyRead.model_validate(dependency)
 

@@ -1,9 +1,12 @@
-"""A version's dependency set must cover every fab the version is deployed to (see
-app/services/fab_scope.py). These tests exercise both directions of that rule:
-adding a dependency that doesn't cover the version's current fabs, and deploying to
-a new fab that an existing dependency doesn't reach — plus the type=model lookup
-bug fixed alongside this (it used to resolve against mcp_crud instead of
-ai_model_crud, so every model dependency 404'd)."""
+"""A legacy skill/mcp dependency is scoped to one specific fab once its version is
+deployed to any fab at all (see app/services/fab_scope.py). These tests exercise:
+the no-fab-deployed-yet path (fab_id must stay unset), the fab_id-required path
+once fabs are deployed (must be one of the deployed fabs, and the dependency must
+itself be available there), duplicate rejection, the type=model exemption (also a
+regression test for the pre-existing bug where it resolved against mcp_crud instead
+of ai_model_crud), and that deploying to a new fab no longer requires existing
+dependencies to already cover it.
+"""
 
 import uuid
 
@@ -72,7 +75,7 @@ async def _set_version_fabs(client, token, version_slug, fab_ids):
     return resp
 
 
-async def test_add_dependency_unrestricted_when_no_fabs_deployed(client, db_session):
+async def test_add_dependency_no_fab_id_when_version_has_no_fabs_deployed(client, db_session):
     user = await make_user(db_session, email="fs1@example.com", role=UserRole.member)
     token = await login(client, "fs1@example.com")
     version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-1")
@@ -84,64 +87,135 @@ async def test_add_dependency_unrestricted_when_no_fabs_deployed(client, db_sess
         json={"dependency_id": str(skill.id), "type": "skill"},
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()["fab_id"] is None
 
 
-async def test_add_dependency_rejected_when_missing_in_deployed_fab(client, db_session):
+async def test_add_dependency_rejects_fab_id_when_version_has_no_fabs_deployed(client, db_session):
     user = await make_user(db_session, email="fs2@example.com", role=UserRole.member)
     token = await login(client, "fs2@example.com")
     version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-2")
-
-    fab_a = await _create_fab(client, token, "F01")
-    fab_b = await _create_fab(client, token, "F02")
-    resp = await _set_version_fabs(client, token, version_slug, [fab_a, fab_b])
-    assert resp.status_code == 200, resp.text
-
     skill = await _seed_skill(db_session, user, "fs-skill-2")
+    fab = await _create_fab(client, token, "F02")
+
+    resp = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies",
+        headers=auth_headers(token),
+        json={"dependency_id": str(skill.id), "type": "skill", "fab_id": fab},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+async def test_add_dependency_requires_fab_id_once_version_has_fabs_deployed(client, db_session):
+    user = await make_user(db_session, email="fs3@example.com", role=UserRole.member)
+    token = await login(client, "fs3@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-3")
+    fab_a = await _create_fab(client, token, "F03")
+    await _set_version_fabs(client, token, version_slug, [fab_a])
+    skill = await _seed_skill(db_session, user, "fs-skill-3")
     await _assign_skill_fab(client, token, str(skill.id), fab_a)
-    # Not assigned to fab_b — the version is deployed to both, so this should be
-    # rejected rather than silently leaving fab_b's deployment without the skill.
 
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
         headers=auth_headers(token),
         json={"dependency_id": str(skill.id), "type": "skill"},
     )
-    assert resp.status_code == 409, resp.text
-    assert "F02" in resp.json()["detail"]
+    assert resp.status_code == 400, resp.text
 
 
-async def test_add_dependency_allowed_when_covers_all_deployed_fabs(client, db_session):
-    user = await make_user(db_session, email="fs3@example.com", role=UserRole.member)
-    token = await login(client, "fs3@example.com")
-    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-3")
-
-    fab_a = await _create_fab(client, token, "F03")
-    fab_b = await _create_fab(client, token, "F04")
-    await _set_version_fabs(client, token, version_slug, [fab_a, fab_b])
-
-    skill = await _seed_skill(db_session, user, "fs-skill-3")
+async def test_add_dependency_rejects_fab_id_not_deployed_by_version(client, db_session):
+    user = await make_user(db_session, email="fs4@example.com", role=UserRole.member)
+    token = await login(client, "fs4@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-4")
+    fab_a = await _create_fab(client, token, "F04a")
+    fab_b = await _create_fab(client, token, "F04b")
+    await _set_version_fabs(client, token, version_slug, [fab_a])
+    skill = await _seed_skill(db_session, user, "fs-skill-4")
     await _assign_skill_fab(client, token, str(skill.id), fab_a)
     await _assign_skill_fab(client, token, str(skill.id), fab_b)
 
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
         headers=auth_headers(token),
-        json={"dependency_id": str(skill.id), "type": "skill"},
+        json={"dependency_id": str(skill.id), "type": "skill", "fab_id": fab_b},
     )
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 400, resp.text
 
 
-async def test_add_mcp_dependency_requires_available_status_per_fab(client, db_session):
-    user = await make_user(db_session, email="fs4@example.com", role=UserRole.member)
-    token = await login(client, "fs4@example.com")
-    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-4")
-
+async def test_add_dependency_rejects_fab_where_dependency_unavailable(client, db_session):
+    user = await make_user(db_session, email="fs5@example.com", role=UserRole.member)
+    token = await login(client, "fs5@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-5")
     fab_a = await _create_fab(client, token, "F05")
+    await _set_version_fabs(client, token, version_slug, [fab_a])
+    skill = await _seed_skill(db_session, user, "fs-skill-5")
+    # Deliberately not assigned to fab_a.
+
+    resp = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies",
+        headers=auth_headers(token),
+        json={"dependency_id": str(skill.id), "type": "skill", "fab_id": fab_a},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "F05" in resp.json()["detail"]
+
+
+async def test_add_dependency_allowed_for_two_different_deployed_fabs_independently(client, db_session):
+    user = await make_user(db_session, email="fs6@example.com", role=UserRole.member)
+    token = await login(client, "fs6@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-6")
+    fab_a = await _create_fab(client, token, "F06a")
+    fab_b = await _create_fab(client, token, "F06b")
+    await _set_version_fabs(client, token, version_slug, [fab_a, fab_b])
+    skill = await _seed_skill(db_session, user, "fs-skill-6")
+    await _assign_skill_fab(client, token, str(skill.id), fab_a)
+    await _assign_skill_fab(client, token, str(skill.id), fab_b)
+
+    resp_a = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies",
+        headers=auth_headers(token),
+        json={"dependency_id": str(skill.id), "type": "skill", "fab_id": fab_a},
+    )
+    assert resp_a.status_code == 201, resp_a.text
+
+    resp_b = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies",
+        headers=auth_headers(token),
+        json={"dependency_id": str(skill.id), "type": "skill", "fab_id": fab_b},
+    )
+    assert resp_b.status_code == 201, resp_b.text
+    assert resp_a.json()["id"] != resp_b.json()["id"]
+
+
+async def test_add_dependency_duplicate_same_fab_rejected(client, db_session):
+    user = await make_user(db_session, email="fs7@example.com", role=UserRole.member)
+    token = await login(client, "fs7@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-7")
+    fab_a = await _create_fab(client, token, "F07")
+    await _set_version_fabs(client, token, version_slug, [fab_a])
+    skill = await _seed_skill(db_session, user, "fs-skill-7")
+    await _assign_skill_fab(client, token, str(skill.id), fab_a)
+
+    payload = {"dependency_id": str(skill.id), "type": "skill", "fab_id": fab_a}
+    first = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies", headers=auth_headers(token), json=payload
+    )
+    assert first.status_code == 201, first.text
+    second = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies", headers=auth_headers(token), json=payload
+    )
+    assert second.status_code == 409, second.text
+
+
+async def test_add_mcp_dependency_requires_available_status_at_fab(client, db_session):
+    user = await make_user(db_session, email="fs8@example.com", role=UserRole.member)
+    token = await login(client, "fs8@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-8")
+    fab_a = await _create_fab(client, token, "F08")
     await _set_version_fabs(client, token, version_slug, [fab_a])
 
     mcp = await mcp_crud.create_mcp(
         db_session,
-        name="fs-mcp-4",
+        name="fs-mcp-8",
         version="1.0.0",
         description=None,
         category=None,
@@ -151,28 +225,25 @@ async def test_add_mcp_dependency_requires_available_status_per_fab(client, db_s
     mcp_fab = await mcp_crud.create_mcp_fab(
         db_session, mcp_id=mcp.id, fab_id=uuid.UUID(fab_a), host="http://127.0.0.1:1"
     )
-    # Deployed to fab_a, but flip its status to unavailable — e.g. a failed sync —
-    # to prove the coverage check looks at per-fab status, not just membership.
     mcp_crud.mark_fab_synced(mcp_fab, AvailabilityStatus.unavailable)
     await db_session.commit()
 
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
         headers=auth_headers(token),
-        json={"dependency_id": str(mcp.id), "type": "mcp"},
+        json={"dependency_id": str(mcp.id), "type": "mcp", "fab_id": fab_a},
     )
     assert resp.status_code == 409, resp.text
-    assert "F05" in resp.json()["detail"]
+    assert "F08" in resp.json()["detail"]
 
 
-async def test_add_model_dependency_resolves_against_ai_models_not_mcps(client, db_session):
+async def test_add_model_dependency_has_no_fab_dimension(client, db_session):
     # Regression test for the pre-existing bug where type=model looked itself up in
     # mcp_crud instead of ai_model_crud and therefore always 404'd.
-    user = await make_user(db_session, email="fs5@example.com", role=UserRole.member)
-    token = await login(client, "fs5@example.com")
-    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-5")
-
-    fab_a = await _create_fab(client, token, "F06")
+    user = await make_user(db_session, email="fs9@example.com", role=UserRole.member)
+    token = await login(client, "fs9@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-9")
+    fab_a = await _create_fab(client, token, "F09")
     await _set_version_fabs(client, token, version_slug, [fab_a])
 
     model = await ai_model_crud.create_model(
@@ -186,59 +257,43 @@ async def test_add_model_dependency_resolves_against_ai_models_not_mcps(client, 
         created_by=user.id,
     )
 
+    rejected = await client.post(
+        f"/api/v1/versions/{version_slug}/dependencies",
+        headers=auth_headers(token),
+        json={"dependency_id": str(model.id), "type": "model", "fab_id": fab_a},
+    )
+    assert rejected.status_code == 400, rejected.text
+
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
         headers=auth_headers(token),
         json={"dependency_id": str(model.id), "type": "model"},
     )
-    # Model dependencies have no fab dimension (see fab_scope module docstring), so
-    # this must succeed even though the version is deployed to fab_a.
     assert resp.status_code == 201, resp.text
     assert resp.json()["type"] == "model"
+    assert resp.json()["fab_id"] is None
 
 
-async def test_set_version_fabs_rejected_when_dependency_missing_in_new_fab(client, db_session):
-    user = await make_user(db_session, email="fs6@example.com", role=UserRole.member)
-    token = await login(client, "fs6@example.com")
-    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-6")
-
-    fab_a = await _create_fab(client, token, "F07")
-    fab_b = await _create_fab(client, token, "F08")
+async def test_set_version_fabs_no_longer_requires_existing_dependencies_to_cover_new_fab(
+    client, db_session
+):
+    user = await make_user(db_session, email="fs10@example.com", role=UserRole.member)
+    token = await login(client, "fs10@example.com")
+    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-10")
+    fab_a = await _create_fab(client, token, "F10a")
+    fab_b = await _create_fab(client, token, "F10b")
     await _set_version_fabs(client, token, version_slug, [fab_a])
 
-    skill = await _seed_skill(db_session, user, "fs-skill-6")
+    skill = await _seed_skill(db_session, user, "fs-skill-10")
     await _assign_skill_fab(client, token, str(skill.id), fab_a)
     resp = await client.post(
         f"/api/v1/versions/{version_slug}/dependencies",
         headers=auth_headers(token),
-        json={"dependency_id": str(skill.id), "type": "skill"},
+        json={"dependency_id": str(skill.id), "type": "skill", "fab_id": fab_a},
     )
     assert resp.status_code == 201, resp.text
 
-    # Now try to also deploy to fab_b, where the skill isn't assigned.
-    resp = await _set_version_fabs(client, token, version_slug, [fab_a, fab_b])
-    assert resp.status_code == 409, resp.text
-    assert "F08" in resp.json()["detail"]
-
-
-async def test_set_version_fabs_allowed_when_dependency_covers_new_fab(client, db_session):
-    user = await make_user(db_session, email="fs7@example.com", role=UserRole.member)
-    token = await login(client, "fs7@example.com")
-    version_slug = await _create_agent_and_draft_version(client, token, "fs-agent-7")
-
-    fab_a = await _create_fab(client, token, "F09")
-    fab_b = await _create_fab(client, token, "F10")
-    await _set_version_fabs(client, token, version_slug, [fab_a])
-
-    skill = await _seed_skill(db_session, user, "fs-skill-7")
-    await _assign_skill_fab(client, token, str(skill.id), fab_a)
-    await _assign_skill_fab(client, token, str(skill.id), fab_b)
-    resp = await client.post(
-        f"/api/v1/versions/{version_slug}/dependencies",
-        headers=auth_headers(token),
-        json={"dependency_id": str(skill.id), "type": "skill"},
-    )
-    assert resp.status_code == 201, resp.text
-
+    # fab_b has no dependency of its own yet — deploying to it is fine, same as a
+    # freshly created version starting out with zero dependencies.
     resp = await _set_version_fabs(client, token, version_slug, [fab_a, fab_b])
     assert resp.status_code == 200, resp.text

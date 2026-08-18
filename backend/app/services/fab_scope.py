@@ -1,34 +1,39 @@
-"""Fab-availability coverage checks for agent-version dependencies.
+"""Fab-scoping rules for agent-version dependencies.
 
-An agent version can be deployed to more than one fab (see AgentFab). A skill/mcp
-dependency is only usable in the fabs where it's itself available (see SkillFab /
-MCPFab). The confirmed rule (2026-08-17 design discussion): a version's dependency
-set must cover *every* fab the version is deployed to, not just some of them — if a
-version is deployed to fab A and fab B, every skill/mcp it depends on must be
-available in both, or the write is rejected. This module is the single place both
-directions of that check live:
+An agent version can be deployed to more than one fab (see AgentFab), and a legacy
+skill/mcp dependency (see AgentDependency.fab_id) is scoped to exactly one of those
+fabs — the same skill can be added twice, once per fab, if it needs to differ per
+fab (2026-08-18 design discussion: this replaced an earlier "one dependency set
+must cover every deployed fab" rule that made it impossible to change what one fab
+uses without touching every other fab the version also serves).
 
-- adding a dependency must not violate coverage for fabs the version is already in
-  (see `uncovered_fabs_for_new_dependency`, used by POST .../dependencies)
-- changing a version's fab deployment must not drop coverage for a fab an existing
-  dependency doesn't reach (see `dependencies_uncovered_by`, used by PUT .../fabs)
+`resolve_dependency_fab_id` is the single place that decides whether a candidate
+`fab_id` on a new dependency is legal, used by POST .../dependencies:
 
-AI Model dependencies and registry-sourced (SkillHub Registry) skills have no fab
-dimension in this schema at all (see docs/superpowers/specs/2026-08-12-fab-scoped-
-schema-design.md — Model deliberately has no `model_fabs` table, and Registry items
-aren't rows in `skills`/`skill_fabs`), so they're always treated as covering every
-fab: there's nothing meaningful to restrict.
+- type=model or source=registry: never fab-scoped (no `model_fabs` table, no
+  per-fab registry data — see docs/superpowers/specs/2026-08-12-fab-scoped-schema-
+  design.md), so fab_id must be omitted.
+- legacy skill/mcp on a version with no fab deployed yet: fab_id must be omitted
+  too (nothing to scope to).
+- legacy skill/mcp on a version deployed to 1+ fabs: fab_id is required, must be
+  one of those deployed fabs, and the referenced skill/mcp must itself be
+  available in that fab (SkillFab / MCPFab, MCP additionally checked against its
+  per-fab `status`).
+
+There is deliberately no "does this version's dependency set cover all its fabs"
+check anymore: deploying to a new fab now legitimately starts that fab out with no
+dependencies of its own, the same way a freshly created version starts with none.
 """
 
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.crud import agent_dependency as dependency_crud
 from app.crud import agent_fab as agent_fab_crud
+from app.crud import fab as fab_crud
 from app.crud import mcp as mcp_crud
 from app.crud import skill as skill_crud
-from app.models.agent_dependency import AgentDependency
 from app.models.enums import AvailabilityStatus, DependencySource, DependencyType
 
 
@@ -59,46 +64,54 @@ async def dependency_available_fab_ids(
     return {r.fab_id for r in rows if r.status == AvailabilityStatus.available}
 
 
-async def uncovered_fabs_for_new_dependency(
+async def resolve_dependency_fab_id(
     db: AsyncSession,
     *,
     agent_version_slug: str,
     type: DependencyType,
     dependency_id: str,
     source: DependencySource,
-) -> set[uuid.UUID]:
-    """Fabs the version is already deployed to that this candidate dependency is NOT
-    available in. Empty means the dependency may be added; a version with no fab
-    deployment yet has nothing to violate."""
-    required = await version_fab_ids(db, agent_version_slug)
-    if not required:
-        return set()
+    requested_fab_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    """Validate `requested_fab_id` for a candidate dependency and return the fab_id
+    to store (None for fab-agnostic dependencies). Raises HTTPException on any
+    violation."""
+    if type == DependencyType.model or source == DependencySource.registry:
+        if requested_fab_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{type.value} dependencies have no fab dimension — omit fab_id",
+            )
+        return None
+
+    deployed = await version_fab_ids(db, agent_version_slug)
+    if not deployed:
+        if requested_fab_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This version isn't deployed to any fab yet — omit fab_id",
+            )
+        return None
+
+    if requested_fab_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fab_id is required — this version is deployed to one or more fabs",
+        )
+    if requested_fab_id not in deployed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Fab {requested_fab_id} is not one of this version's deployed fabs",
+        )
+
     available = await dependency_available_fab_ids(
         db, type=type, dependency_id=dependency_id, source=source
     )
-    if available is None:
-        return set()
-    return required - available
-
-
-async def dependencies_uncovered_by(
-    db: AsyncSession, *, agent_version_slug: str, fab_ids: set[uuid.UUID]
-) -> list[tuple[AgentDependency, set[uuid.UUID]]]:
-    """Existing dependencies of this version that would NOT all be satisfied if the
-    version were deployed to exactly `fab_ids` — paired with the specific fabs each
-    one is missing. Empty `fab_ids` (undeploying entirely) trivially satisfies
-    everything."""
-    if not fab_ids:
-        return []
-    deps = await dependency_crud.list_by_version(db, agent_version_slug)
-    result: list[tuple[AgentDependency, set[uuid.UUID]]] = []
-    for dep in deps:
-        available = await dependency_available_fab_ids(
-            db, type=dep.type, dependency_id=dep.dependency_id, source=dep.source
+    if available is not None and requested_fab_id not in available:
+        fab = await fab_crud.get_by_id(db, requested_fab_id)
+        fab_name = fab.fab if fab is not None else str(requested_fab_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{type.value} {dependency_id} is not available in fab {fab_name}",
         )
-        if available is None:
-            continue
-        missing = fab_ids - available
-        if missing:
-            result.append((dep, missing))
-    return result
+    return requested_fab_id

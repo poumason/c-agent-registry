@@ -1,5 +1,8 @@
+import uuid
+
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -11,7 +14,7 @@ class AgentDependency(UUIDPKMixin, TimestampMixin, Base):
     __tablename__ = "agent_dependencies"
     __table_args__ = (
         UniqueConstraint(
-            "agent_slug", "dependency_id", "type", "source", name="uq_agent_dependency"
+            "agent_slug", "dependency_id", "type", "source", "fab_id", name="uq_agent_dependency"
         ),
     )
 
@@ -31,4 +34,12 @@ class AgentDependency(UUIDPKMixin, TimestampMixin, Base):
         SAEnum(DependencySource, name="dependency_source"),
         nullable=False,
         default=DependencySource.legacy,
+    )
+    # NULL has exactly one meaning: this dependency has no fab dimension — always
+    # true for type=model/source=registry, and also true for a legacy skill/mcp
+    # dependency on a version that isn't deployed to any fab yet. Once the version
+    # is deployed to 1+ fabs, a legacy skill/mcp dependency must carry a concrete
+    # fab_id (one of the version's deployed fabs) — see app/services/fab_scope.py.
+    fab_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fabs.id"), nullable=True
     )

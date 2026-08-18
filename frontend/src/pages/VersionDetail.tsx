@@ -139,6 +139,10 @@ export default function VersionDetail() {
     () => new Map((skillhubRegistryQuery.data?.items ?? []).map((i) => [i.id, i.name])),
     [skillhubRegistryQuery.data],
   );
+  const fabNameById = useMemo(
+    () => new Map((fabsQuery.data ?? []).map((f) => [f.id, f.fab])),
+    [fabsQuery.data],
+  );
   // Pending reviews the current user can act on right now — mirrors decide_review's
   // own permission check (assigned reviewer, or admin overriding anyone's). Once the
   // version leaves in_review (someone already decided), nothing is actionable even if
@@ -208,15 +212,22 @@ export default function VersionDetail() {
   });
 
   const addDepMutation = useMutation({
-    mutationFn: (values: { type: DependencyType; dependency_id: string; source: DependencySource }) =>
-      addDependency(versionSlug!, values.dependency_id, values.type, values.source),
+    mutationFn: (values: {
+      type: DependencyType;
+      dependency_id: string;
+      source: DependencySource;
+      fab_id: string | null;
+    }) => addDependency(versionSlug!, values.dependency_id, values.type, values.source, values.fab_id),
     onSuccess: () => {
       message.success(t("versionDetail.addDependencySuccess"));
       queryClient.invalidateQueries({ queryKey: ["version-deps", versionSlug] });
       setDepOpen(false);
       depForm.resetFields();
     },
-    onError: () => message.error(t("versionDetail.addDependencyFailed")),
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(msg ?? t("versionDetail.addDependencyFailed"));
+    },
   });
 
   const removeDepMutation = useMutation({
@@ -612,6 +623,7 @@ export default function VersionDetail() {
                   const legacyName = d.type === "skill" ? skillNameById.get(d.dependency_id) : mcpNameById.get(d.dependency_id);
                   const registryName = d.type === "skill" ? skillhubItemNameById.get(d.dependency_id) : undefined;
                   const label = (d.source === "registry" ? registryName : legacyName) ?? d.dependency_id;
+                  const fabName = d.fab_id ? (fabNameById.get(d.fab_id) ?? d.fab_id) : null;
                   return (
                     <Tag
                       key={d.id}
@@ -622,7 +634,7 @@ export default function VersionDetail() {
                         removeDepMutation.mutate(d.id);
                       }}
                     >
-                      {label} <span style={{ opacity: 0.6 }}>{d.type}{d.source === "registry" ? " · synced" : ""}</span>
+                      {label} <span style={{ opacity: 0.6 }}>{d.type}{d.source === "registry" ? " · synced" : ""}{fabName ? ` · ${fabName}` : ""}</span>
                     </Tag>
                   );
                 })}
@@ -737,14 +749,24 @@ export default function VersionDetail() {
           form={depForm}
           layout="vertical"
           initialValues={{ type: "skill" }}
-          onFinish={(v: { type: DependencyType; dependency_id: string }) => {
+          onFinish={(v: { type: DependencyType; dependency_id: string; fab_id?: string }) => {
             // Encoded as "<source>:<id>" by the option values below — decode before
             // sending, the API wants source and dependency_id as separate fields.
             const [source, ...rest] = v.dependency_id.split(":");
+            const isLegacy = source === "legacy";
+            if (savedFabIds.size > 0 && isLegacy && !v.fab_id) {
+              depForm.setFields([
+                { name: "fab_id", errors: [t("versionDetail.fabRequiredForDependency")] },
+              ]);
+              return;
+            }
             addDepMutation.mutate({
               type: v.type,
               source: source as DependencySource,
               dependency_id: rest.join(":"),
+              // Registry items have no fab dimension (see app/services/fab_scope.py)
+              // even if a fab was left selected from a previous legacy pick.
+              fab_id: isLegacy ? (v.fab_id ?? null) : null,
             });
           }}
         >
@@ -754,46 +776,76 @@ export default function VersionDetail() {
                 { value: "skill", label: "Skill" },
                 { value: "mcp", label: "MCP" },
               ]}
+              onChange={() => depForm.setFieldValue("dependency_id", undefined)}
             />
           </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type}>
+
+          {savedFabIds.size > 0 && (
+            <Form.Item
+              label={t("versionDetail.fabLabel")}
+              name="fab_id"
+              extra={t("versionDetail.pickFabFirstHint")}
+            >
+              <Select
+                allowClear
+                options={[...savedFabIds].map((fabId) => ({
+                  value: fabId,
+                  label: fabNameById.get(fabId) ?? fabId,
+                }))}
+                placeholder={t("common.select")}
+                onChange={() => depForm.setFieldValue("dependency_id", undefined)}
+              />
+            </Form.Item>
+          )}
+
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type || prev.fab_id !== cur.fab_id}>
             {({ getFieldValue }) => {
               const type: DependencyType = getFieldValue("type");
-              // MCP no longer has a separate "registry" source — it resolves against
-              // the mcps table directly. Skill keeps the legacy/registry group split
-              // (SkillHub Registry is still a distinct external mirror, with no fab
-              // concept of its own — left unfiltered). Both legacy groups are now
-              // filtered to items available in *every* fab this version is deployed
-              // to (savedFabIds must be a subset of the item's available fabs), not
-              // just some overlap — matches the backend's coverage rule in
-              // app/services/fab_scope.py: a version's dependencies must reach every
-              // fab it's deployed to, or that fab's deployment silently lacks it.
-              // A version with no fabs selected yet is unrestricted (vacuous subset).
-              const fabHint = savedFabIds.size === 0 ? t("versionDetail.noFabsSelectedHint") : undefined;
-              const coversDeployedFabs = (availableFabIds: Set<string>) =>
-                [...savedFabIds].every((fabId) => availableFabIds.has(fabId));
+              const fabId: string | undefined = getFieldValue("fab_id");
+              // Once this version has fabs deployed, a legacy skill/mcp is only
+              // offered once a specific fab is picked above, and only if it's
+              // available in *that* fab — each dependency is now scoped to one fab
+              // rather than needing to cover every fab the version is deployed to
+              // (see app/services/fab_scope.py). Registry-sourced skills have no fab
+              // dimension and stay selectable regardless. A version with no fabs
+              // deployed yet is unrestricted.
+              const needsFab = savedFabIds.size > 0;
+              const fabPending = needsFab && !fabId;
+              const availableAt = (fabIds: Set<string>) => (fabId ? fabIds.has(fabId) : true);
+
               if (type === "mcp") {
-                const mcpOptions = (mcpsQuery.data ?? [])
-                  .filter((m) =>
-                    coversDeployedFabs(
-                      new Set(m.fabs.filter((f) => f.status === "available").map((f) => f.fab_id)),
-                    ),
-                  )
-                  .map((m) => ({ value: `legacy:${m.id}`, label: `${m.name} v${m.version}` }));
+                const mcpOptions = fabPending
+                  ? []
+                  : (mcpsQuery.data ?? [])
+                      .filter((m) =>
+                        availableAt(
+                          new Set(m.fabs.filter((f) => f.status === "available").map((f) => f.fab_id)),
+                        ),
+                      )
+                      .map((m) => ({ value: `legacy:${m.id}`, label: `${m.name} v${m.version}` }));
                 return (
-                  <Form.Item label="MCP" name="dependency_id" rules={[{ required: true }]} extra={fabHint}>
-                    <Select options={mcpOptions} placeholder={t("common.select")} showSearch optionFilterProp="label" />
+                  <Form.Item
+                    label="MCP"
+                    name="dependency_id"
+                    rules={[{ required: true }]}
+                    extra={fabPending ? t("versionDetail.pickFabFirstHint") : undefined}
+                  >
+                    <Select
+                      options={mcpOptions}
+                      placeholder={t("common.select")}
+                      showSearch
+                      optionFilterProp="label"
+                      disabled={fabPending}
+                    />
                   </Form.Item>
                 );
               }
 
-              const legacyOptions = (skillsQuery.data ?? [])
-                .filter(
-                  (s) =>
-                    s.status === "available" &&
-                    coversDeployedFabs(new Set(s.fabs.map((f) => f.fab_id))),
-                )
-                .map((s) => ({ value: `legacy:${s.id}`, label: `${s.name} v${s.version}` }));
+              const legacyOptions = fabPending
+                ? []
+                : (skillsQuery.data ?? [])
+                    .filter((s) => s.status === "available" && availableAt(new Set(s.fabs.map((f) => f.fab_id))))
+                    .map((s) => ({ value: `legacy:${s.id}`, label: `${s.name} v${s.version}` }));
               const registryOptions = (skillhubRegistryQuery.data?.items ?? []).map((i) => ({
                 value: `registry:${i.id}`,
                 label: `${i.name}${i.version ? ` v${i.version}` : ""}`,
@@ -803,7 +855,7 @@ export default function VersionDetail() {
                 { label: t("versionDetail.skillHubSynced"), options: registryOptions },
               ];
               return (
-                <Form.Item label="Skill" name="dependency_id" rules={[{ required: true }]} extra={fabHint}>
+                <Form.Item label="Skill" name="dependency_id" rules={[{ required: true }]}>
                   <Select options={groupedOptions} placeholder={t("common.select")} showSearch optionFilterProp="label" />
                 </Form.Item>
               );

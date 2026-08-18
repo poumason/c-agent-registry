@@ -18,6 +18,31 @@ async def get_by_id(db: AsyncSession, dependency_row_id: uuid.UUID) -> AgentDepe
     return await db.get(AgentDependency, dependency_row_id)
 
 
+async def get_existing(
+    db: AsyncSession,
+    *,
+    agent_slug: str,
+    dependency_id: str,
+    type: DependencyType,
+    source: DependencySource,
+    fab_id: uuid.UUID | None,
+) -> AgentDependency | None:
+    """Look up a row matching the full uq_agent_dependency key, including a NULL
+    fab_id — the DB's UNIQUE constraint treats NULLs as distinct from each other,
+    so it won't catch a duplicate fab-agnostic row on its own; callers must check
+    this before create_dependency."""
+    result = await db.execute(
+        select(AgentDependency).where(
+            AgentDependency.agent_slug == agent_slug,
+            AgentDependency.dependency_id == dependency_id,
+            AgentDependency.type == type,
+            AgentDependency.source == source,
+            AgentDependency.fab_id == fab_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_dependency(
     db: AsyncSession,
     *,
@@ -25,9 +50,14 @@ async def create_dependency(
     dependency_id: str,
     type: DependencyType,
     source: DependencySource = DependencySource.legacy,
+    fab_id: uuid.UUID | None = None,
 ) -> AgentDependency:
     dependency = AgentDependency(
-        agent_slug=agent_slug, dependency_id=dependency_id, type=type, source=source
+        agent_slug=agent_slug,
+        dependency_id=dependency_id,
+        type=type,
+        source=source,
+        fab_id=fab_id,
     )
     db.add(dependency)
     await db.commit()
