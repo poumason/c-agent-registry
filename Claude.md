@@ -36,7 +36,7 @@
     | 設定審核檢核規則 | X | X | V|
 
 ### Agent
-1. 參考 idea.drawio 中的 ERD，他會被使用者建立，設定參數，每一個 agent 會有多個版本，同時只能有 2 個版本被 active。
+1. 參考 idea.drawio 中的 ERD，他會被使用者建立，設定參數，每一個 agent 會有多個版本（active 版本數量無上限，見下方「FAB 與版本的關係」2026/08/19 新規範）。
 2. 建立 agent 的人視為 owner，可以邀請其他 member 變成共同編輯者。
 3. agent 在建立時可用選擇需要的 skill/mcp，他會被紀錄起來 agent_dependcy
 4. agent 被 submit 時需要指定擁有 reviewer 權限的使用者來進行審核（如果沒有指定就是按 agent 可被審核的人數清單來寫入 reviews）
@@ -92,3 +92,11 @@
 ### 情境
 1. 如果要同一個版本在多釋出至 F18，目前的設計是否有支援？如果有支援的，是否要算進版本呢？
 2. 如果今天 agent 只有在 F15 有問題，它需要做更換使用的 skill 或是 mcp，那麼它的進版本以目前的設計，是否全部支援的 fab 都會變成新版本？有辦法只升級 F15 嗎？對於現在的設計差異有多少？
+
+### 2026/08/19 新規範
+- 移除只有 2 個 active version 的限制
+- 一個 version 可以設定多個 fab 等同於 代表每個 fab 可能會有多個版本
+- 每一個 version 如果已經有一個 fab 被 active，那要擴充其他 fab 時需要檢查其他 fab 是否有目前 active 版本用到的 skill, mcps 它們也需要相同的版本
+  - 如果沒有相同的版本，只能做新進版本的 flow 進行
+- 需要在 agent 的畫面顯示每一個版本分別有哪些 active 的 FAB
+- version 可以被選擇 deactivate 或是軟刪除

@@ -143,7 +143,7 @@ async def test_owner_can_invite_editor_but_cannot_remove_owner(client, db_sessio
     assert resp.status_code == 204
 
 
-async def test_max_two_active_versions_per_agent(client, db_session):
+async def test_no_limit_on_active_versions_per_agent(client, db_session):
     await make_user(db_session, email="owner2@example.com", role=UserRole.member)
     await make_user(db_session, email="reviewer2@example.com", role=UserRole.reviewer)
     token = await login(client, "owner2@example.com")
@@ -190,18 +190,19 @@ async def test_max_two_active_versions_per_agent(client, db_session):
         )
         assert resp.status_code == 200, resp.text
 
-    # activate first two - should succeed
-    for version_slug in slugs[:2]:
+    # 2026-08-19 rule change: no cap on how many versions of an agent can be
+    # active at once — a fab may be served by more than one active version.
+    for version_slug in slugs:
         resp = await client.post(
             f"/api/v1/versions/{version_slug}/activate", headers=auth_headers(token)
         )
         assert resp.status_code == 200, resp.text
 
-    # third activation should be rejected (max 2 active)
-    resp = await client.post(
-        f"/api/v1/versions/{slugs[2]}/activate", headers=auth_headers(token)
+    resp = await client.get(
+        "/api/v1/agents/agent-c/versions", headers=auth_headers(token)
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 200, resp.text
+    assert sum(1 for v in resp.json() if v["status"] == "active") == len(slugs)
 
 
 async def test_owner_can_edit_agent_fields(client, db_session):

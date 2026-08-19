@@ -16,6 +16,7 @@ import {
   Space,
   Spin,
   Switch,
+  Tabs,
   Tag,
   Typography,
 } from "antd";
@@ -26,6 +27,7 @@ import { listFabs, listSkills, listMcps } from "../api/skills";
 import { getRegistryOverview } from "../api/registry";
 import { decideReview, listReviewerCandidates, listVersionReviews } from "../api/reviews";
 import type { AgentCardSkillEntry, DependencySource, DependencyType } from "../api/types";
+import type { AgentDependency } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import {
   activateVersion,
@@ -54,6 +56,10 @@ export default function VersionDetail() {
   const queryClient = useQueryClient();
   const [submitOpen, setSubmitOpen] = useState(false);
   const [depOpen, setDepOpen] = useState(false);
+  // Which fab tab's "Add Dependency" button opened the modal — null when opened
+  // from the no-fabs-deployed empty state (fab_id stays unset in that case too).
+  const [depTargetFabId, setDepTargetFabId] = useState<string | null>(null);
+  const [manageFabsOpen, setManageFabsOpen] = useState(false);
   const [submitForm] = Form.useForm<{ reviewer_ids: string[] }>();
   const [depForm] = Form.useForm<{ type: DependencyType; dependency_id: string }>();
   const [skillsForm] = Form.useForm<{ skills: AgentCardSkillEntry[] }>();
@@ -119,14 +125,6 @@ export default function VersionDetail() {
     }
   }, [versionQuery.data, skillsForm]);
 
-  // The dependency picker filters against the *saved* fab assignment, not whatever's
-  // currently checked-but-unsaved in the panel above — avoids the picker changing
-  // out from under the user mid-edit.
-  const savedFabIds = useMemo(
-    () => new Set((versionFabsQuery.data ?? []).map((f) => f.fab_id)),
-    [versionFabsQuery.data],
-  );
-
   const skillNameById = useMemo(
     () => new Map((skillsQuery.data ?? []).map((s) => [s.id, `${s.name} v${s.version}`])),
     [skillsQuery.data],
@@ -143,6 +141,52 @@ export default function VersionDetail() {
     () => new Map((fabsQuery.data ?? []).map((f) => [f.id, f.fab])),
     [fabsQuery.data],
   );
+
+  // A fab's effective dependency set: rows scoped to it, plus fab-agnostic ones
+  // (fab_id === null — model/registry dependencies, see app/services/fab_scope.py).
+  const depsForFab = (fabId: string) =>
+    (depsQuery.data ?? []).filter((d) => d.fab_id === fabId || d.fab_id === null);
+
+  // What the agent card looks like reached at this one fab — same shared identity/
+  // capabilities/skills as agentCardQuery.data, just this fab's single interface
+  // instead of the full aggregate list. Computed client-side; GET .../agent-card
+  // itself stays version-wide (see app/services/agent_card.py).
+  const cardForFab = (fabId: string) => {
+    if (!agentCardQuery.data) return undefined;
+    const url = fabUrls[fabId];
+    return {
+      ...agentCardQuery.data,
+      supportedInterfaces: url ? [{ url, protocolBinding: "JSONRPC", protocolVersion: "1.0" }] : [],
+    };
+  };
+
+  const renderDependencyTag = (d: AgentDependency) => {
+    // "registry" source only ever applies to skill dependencies now (see the
+    // picker below) — an mcp/registry row could only exist from before this
+    // reconciliation, and falls back to the dependency_id itself.
+    const legacyName = d.type === "skill" ? skillNameById.get(d.dependency_id) : mcpNameById.get(d.dependency_id);
+    const registryName = d.type === "skill" ? skillhubItemNameById.get(d.dependency_id) : undefined;
+    const label = (d.source === "registry" ? registryName : legacyName) ?? d.dependency_id;
+    return (
+      <Tag
+        key={d.id}
+        color={d.type === "mcp" ? "geekblue" : "default"}
+        closable={isEditable}
+        onClose={(e) => {
+          e.preventDefault();
+          removeDepMutation.mutate(d.id);
+        }}
+      >
+        {label}{" "}
+        <span style={{ opacity: 0.6 }}>
+          {d.type}
+          {d.source === "registry" ? " · synced" : ""}
+          {d.fab_id === null ? ` · ${t("versionDetail.sharedDependencyBadge")}` : ""}
+        </span>
+      </Tag>
+    );
+  };
+
   // Pending reviews the current user can act on right now — mirrors decide_review's
   // own permission check (assigned reviewer, or admin overriding anyone's). Once the
   // version leaves in_review (someone already decided), nothing is actionable even if
@@ -482,57 +526,6 @@ export default function VersionDetail() {
 
           <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20, marginBottom: 18 }}>
             <Typography.Title level={5} style={{ marginBottom: 6 }}>
-              {t("versionDetail.fabsTitle")}
-            </Typography.Title>
-            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-              {t("versionDetail.fabsDesc")}
-            </Typography.Text>
-            <div style={{ marginTop: 14, marginBottom: 14 }}>
-              {(fabsQuery.data ?? []).map((fab) => {
-                const checked = fab.id in fabUrls;
-                return (
-                  <div key={fab.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <Checkbox
-                      checked={checked}
-                      disabled={!isEditable}
-                      onChange={(e) => {
-                        setFabUrls((prev) => {
-                          const next = { ...prev };
-                          if (e.target.checked) next[fab.id] = next[fab.id] ?? "";
-                          else delete next[fab.id];
-                          return next;
-                        });
-                      }}
-                    >
-                      {fab.fab}
-                    </Checkbox>
-                    <Input
-                      placeholder="https://agents.example.com/your-agent"
-                      value={fabUrls[fab.id] ?? ""}
-                      disabled={!isEditable || !checked}
-                      onChange={(e) => setFabUrls((prev) => ({ ...prev, [fab.id]: e.target.value }))}
-                      style={{ flex: 1 }}
-                    />
-                  </div>
-                );
-              })}
-              {(fabsQuery.data ?? []).length === 0 && (
-                <Typography.Text type="secondary">{t("versionDetail.fabsEmpty")}</Typography.Text>
-              )}
-            </div>
-            {isEditable && (
-              <Button
-                onClick={() => saveFabsMutation.mutate()}
-                loading={saveFabsMutation.isPending}
-                disabled={Object.entries(fabUrls).some(([, url]) => !url.trim())}
-              >
-                {t("versionDetail.fabsSave")}
-              </Button>
-            )}
-          </div>
-
-          <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20, marginBottom: 18 }}>
-            <Typography.Title level={5} style={{ marginBottom: 6 }}>
               {t("versionDetail.skillsEditorTitle")}
             </Typography.Title>
             <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block", marginBottom: 14 }}>
@@ -604,43 +597,168 @@ export default function VersionDetail() {
           </div>
 
           <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <Typography.Title level={5} style={{ marginBottom: 0 }}>
-                {t("versionDetail.dependenciesTitle")}
+                {t("versionDetail.fabsTitle")}
               </Typography.Title>
               {isEditable && (
-                <Button size="small" onClick={() => setDepOpen(true)}>
-                  {t("versionDetail.addDependency")}
+                <Button size="small" onClick={() => setManageFabsOpen(true)}>
+                  {t("versionDetail.manageFabs")}
                 </Button>
               )}
             </div>
-            {depsQuery.data && depsQuery.data.length > 0 ? (
-              <Space wrap>
-                {depsQuery.data.map((d) => {
-                  // "registry" source only ever applies to skill dependencies now (see
-                  // the picker above) — an mcp/registry row could only exist from before
-                  // this reconciliation, and falls back to the dependency_id itself.
-                  const legacyName = d.type === "skill" ? skillNameById.get(d.dependency_id) : mcpNameById.get(d.dependency_id);
-                  const registryName = d.type === "skill" ? skillhubItemNameById.get(d.dependency_id) : undefined;
-                  const label = (d.source === "registry" ? registryName : legacyName) ?? d.dependency_id;
-                  const fabName = d.fab_id ? (fabNameById.get(d.fab_id) ?? d.fab_id) : null;
-                  return (
-                    <Tag
-                      key={d.id}
-                      color={d.type === "mcp" ? "geekblue" : "default"}
-                      closable={isEditable}
-                      onClose={(e) => {
-                        e.preventDefault();
-                        removeDepMutation.mutate(d.id);
+            <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block", marginBottom: 14 }}>
+              {t("versionDetail.fabsDesc")}
+            </Typography.Text>
+
+            {(versionFabsQuery.data ?? []).length > 0 ? (
+              <Tabs
+                items={(versionFabsQuery.data ?? []).map((vf) => {
+                  const fabId = vf.fab_id;
+                  const fabName = fabNameById.get(fabId) ?? fabId;
+                  const deps = depsForFab(fabId);
+                  const card = cardForFab(fabId);
+                  return {
+                    key: fabId,
+                    label: fabName,
+                    children: (
+                      <div>
+                        <div style={{ marginBottom: 18 }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--fg-subtle)", marginBottom: 6 }}>
+                            {t("versionDetail.fabUrlLabel")}
+                          </div>
+                          <Space.Compact style={{ width: "100%" }}>
+                            <Input
+                              placeholder="https://agents.example.com/your-agent"
+                              value={fabUrls[fabId] ?? ""}
+                              disabled={!isEditable}
+                              onChange={(e) => setFabUrls((prev) => ({ ...prev, [fabId]: e.target.value }))}
+                            />
+                            {isEditable && (
+                              <Button
+                                onClick={() => saveFabsMutation.mutate()}
+                                loading={saveFabsMutation.isPending}
+                                disabled={!(fabUrls[fabId] ?? "").trim()}
+                              >
+                                {t("versionDetail.saveFabUrl")}
+                              </Button>
+                            )}
+                          </Space.Compact>
+                        </div>
+
+                        <div style={{ marginBottom: 18 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--fg-subtle)" }}>
+                              {t("versionDetail.dependenciesTitle")}
+                            </div>
+                            {isEditable && (
+                              <Button
+                                size="small"
+                                onClick={() => {
+                                  setDepTargetFabId(fabId);
+                                  setDepOpen(true);
+                                }}
+                              >
+                                {t("versionDetail.addDependency")}
+                              </Button>
+                            )}
+                          </div>
+                          {deps.length > 0 ? (
+                            <Space wrap>{deps.map((d) => renderDependencyTag(d))}</Space>
+                          ) : (
+                            <Typography.Text type="secondary">{t("versionDetail.dependenciesEmpty")}</Typography.Text>
+                          )}
+                        </div>
+
+                        <div>
+                          <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--fg-subtle)", marginBottom: 6 }}>
+                            {t("versionDetail.agentCardTitle")}
+                          </div>
+                          {card ? (
+                            <pre
+                              style={{
+                                background: "var(--bg-surface-2)",
+                                border: "1px solid var(--border-default)",
+                                borderRadius: 6,
+                                padding: 12,
+                                fontSize: 11.5,
+                                overflowX: "auto",
+                                maxHeight: 360,
+                                overflowY: "auto",
+                                marginBottom: 0,
+                              }}
+                            >
+                              {JSON.stringify(card, null, 2)}
+                            </pre>
+                          ) : (
+                            <Spin size="small" />
+                          )}
+                        </div>
+                      </div>
+                    ),
+                  };
+                })}
+              />
+            ) : (
+              <div>
+                <Typography.Text type="secondary">{t("versionDetail.noFabsDeployedYet")}</Typography.Text>
+                {isEditable && (
+                  <div style={{ marginTop: 10, marginBottom: 18 }}>
+                    <Button size="small" onClick={() => setManageFabsOpen(true)}>
+                      {t("versionDetail.manageFabs")}
+                    </Button>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 18, marginBottom: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--fg-subtle)" }}>
+                      {t("versionDetail.dependenciesTitle")}
+                    </div>
+                    {isEditable && (
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setDepTargetFabId(null);
+                          setDepOpen(true);
+                        }}
+                      >
+                        {t("versionDetail.addDependency")}
+                      </Button>
+                    )}
+                  </div>
+                  {depsQuery.data && depsQuery.data.length > 0 ? (
+                    <Space wrap>{depsQuery.data.map((d) => renderDependencyTag(d))}</Space>
+                  ) : (
+                    <Typography.Text type="secondary">{t("versionDetail.dependenciesEmpty")}</Typography.Text>
+                  )}
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--fg-subtle)", marginBottom: 6 }}>
+                    {t("versionDetail.agentCardTitle")}
+                  </div>
+                  {agentCardQuery.data ? (
+                    <pre
+                      style={{
+                        background: "var(--bg-surface-2)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: 6,
+                        padding: 12,
+                        fontSize: 11.5,
+                        overflowX: "auto",
+                        maxHeight: 360,
+                        overflowY: "auto",
+                        marginBottom: 0,
                       }}
                     >
-                      {label} <span style={{ opacity: 0.6 }}>{d.type}{d.source === "registry" ? " · synced" : ""}{fabName ? ` · ${fabName}` : ""}</span>
-                    </Tag>
-                  );
-                })}
-              </Space>
-            ) : (
-              <Typography.Text type="secondary">{t("versionDetail.dependenciesEmpty")}</Typography.Text>
+                      {JSON.stringify(agentCardQuery.data, null, 2)}
+                    </pre>
+                  ) : (
+                    <Spin size="small" />
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -675,33 +793,6 @@ export default function VersionDetail() {
           )}
         </div>
 
-        <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 8, padding: 20, marginTop: 18 }}>
-          <Typography.Title level={5} style={{ marginBottom: 6 }}>
-            {t("versionDetail.agentCardTitle")}
-          </Typography.Title>
-          <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block", marginBottom: 14 }}>
-            {t("versionDetail.agentCardDesc")}
-          </Typography.Text>
-          {agentCardQuery.data ? (
-            <pre
-              style={{
-                background: "var(--bg-surface-2)",
-                border: "1px solid var(--border-default)",
-                borderRadius: 6,
-                padding: 12,
-                fontSize: 11.5,
-                overflowX: "auto",
-                maxHeight: 420,
-                overflowY: "auto",
-                marginBottom: 0,
-              }}
-            >
-              {JSON.stringify(agentCardQuery.data, null, 2)}
-            </pre>
-          ) : (
-            <Spin size="small" />
-          )}
-        </div>
       </div>
 
       <Modal
@@ -737,7 +828,55 @@ export default function VersionDetail() {
       </Modal>
 
       <Modal
-        title={t("versionDetail.addDependencyModalTitle")}
+        title={t("versionDetail.manageFabsModalTitle")}
+        open={manageFabsOpen}
+        onCancel={() => setManageFabsOpen(false)}
+        onOk={() => saveFabsMutation.mutate(undefined, { onSuccess: () => setManageFabsOpen(false) })}
+        confirmLoading={saveFabsMutation.isPending}
+        okText={t("versionDetail.fabsSave")}
+        cancelText={t("common.cancel")}
+      >
+        {(fabsQuery.data ?? []).map((fab) => {
+          const checked = fab.id in fabUrls;
+          return (
+            <div key={fab.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <Checkbox
+                checked={checked}
+                disabled={!isEditable}
+                onChange={(e) => {
+                  setFabUrls((prev) => {
+                    const next = { ...prev };
+                    if (e.target.checked) next[fab.id] = next[fab.id] ?? "";
+                    else delete next[fab.id];
+                    return next;
+                  });
+                }}
+              >
+                {fab.fab}
+              </Checkbox>
+              <Input
+                placeholder="https://agents.example.com/your-agent"
+                value={fabUrls[fab.id] ?? ""}
+                disabled={!isEditable || !checked}
+                onChange={(e) => setFabUrls((prev) => ({ ...prev, [fab.id]: e.target.value }))}
+                style={{ flex: 1 }}
+              />
+            </div>
+          );
+        })}
+        {(fabsQuery.data ?? []).length === 0 && (
+          <Typography.Text type="secondary">{t("versionDetail.fabsEmpty")}</Typography.Text>
+        )}
+      </Modal>
+
+      <Modal
+        title={
+          depTargetFabId
+            ? t("versionDetail.addDependencyModalTitleForFab", {
+                fab: fabNameById.get(depTargetFabId) ?? depTargetFabId,
+              })
+            : t("versionDetail.addDependencyModalTitle")
+        }
         open={depOpen}
         onCancel={() => setDepOpen(false)}
         onOk={() => depForm.submit()}
@@ -749,24 +888,18 @@ export default function VersionDetail() {
           form={depForm}
           layout="vertical"
           initialValues={{ type: "skill" }}
-          onFinish={(v: { type: DependencyType; dependency_id: string; fab_id?: string }) => {
+          onFinish={(v: { type: DependencyType; dependency_id: string }) => {
             // Encoded as "<source>:<id>" by the option values below — decode before
             // sending, the API wants source and dependency_id as separate fields.
             const [source, ...rest] = v.dependency_id.split(":");
             const isLegacy = source === "legacy";
-            if (savedFabIds.size > 0 && isLegacy && !v.fab_id) {
-              depForm.setFields([
-                { name: "fab_id", errors: [t("versionDetail.fabRequiredForDependency")] },
-              ]);
-              return;
-            }
             addDepMutation.mutate({
               type: v.type,
               source: source as DependencySource,
               dependency_id: rest.join(":"),
               // Registry items have no fab dimension (see app/services/fab_scope.py)
-              // even if a fab was left selected from a previous legacy pick.
-              fab_id: isLegacy ? (v.fab_id ?? null) : null,
+              // regardless of which fab tab the modal was opened from.
+              fab_id: isLegacy ? depTargetFabId : null,
             });
           }}
         >
@@ -780,72 +913,36 @@ export default function VersionDetail() {
             />
           </Form.Item>
 
-          {savedFabIds.size > 0 && (
-            <Form.Item
-              label={t("versionDetail.fabLabel")}
-              name="fab_id"
-              extra={t("versionDetail.pickFabFirstHint")}
-            >
-              <Select
-                allowClear
-                options={[...savedFabIds].map((fabId) => ({
-                  value: fabId,
-                  label: fabNameById.get(fabId) ?? fabId,
-                }))}
-                placeholder={t("common.select")}
-                onChange={() => depForm.setFieldValue("dependency_id", undefined)}
-              />
-            </Form.Item>
-          )}
-
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type || prev.fab_id !== cur.fab_id}>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type}>
             {({ getFieldValue }) => {
               const type: DependencyType = getFieldValue("type");
-              const fabId: string | undefined = getFieldValue("fab_id");
-              // Once this version has fabs deployed, a legacy skill/mcp is only
-              // offered once a specific fab is picked above, and only if it's
-              // available in *that* fab — each dependency is now scoped to one fab
-              // rather than needing to cover every fab the version is deployed to
-              // (see app/services/fab_scope.py). Registry-sourced skills have no fab
-              // dimension and stay selectable regardless. A version with no fabs
-              // deployed yet is unrestricted.
-              const needsFab = savedFabIds.size > 0;
-              const fabPending = needsFab && !fabId;
-              const availableAt = (fabIds: Set<string>) => (fabId ? fabIds.has(fabId) : true);
+              // Which fab this dependency is scoped to comes from which fab's tab
+              // the "Add Dependency" button was clicked in (depTargetFabId) — a
+              // legacy skill/mcp is only offered here if it's available *there*
+              // (see app/services/fab_scope.py). depTargetFabId is null when opened
+              // from the no-fabs-deployed empty state, in which case there's
+              // nothing to restrict against.
+              const availableAt = (fabIds: Set<string>) =>
+                depTargetFabId ? fabIds.has(depTargetFabId) : true;
 
               if (type === "mcp") {
-                const mcpOptions = fabPending
-                  ? []
-                  : (mcpsQuery.data ?? [])
-                      .filter((m) =>
-                        availableAt(
-                          new Set(m.fabs.filter((f) => f.status === "available").map((f) => f.fab_id)),
-                        ),
-                      )
-                      .map((m) => ({ value: `legacy:${m.id}`, label: `${m.name} v${m.version}` }));
+                const mcpOptions = (mcpsQuery.data ?? [])
+                  .filter((m) =>
+                    availableAt(
+                      new Set(m.fabs.filter((f) => f.status === "available").map((f) => f.fab_id)),
+                    ),
+                  )
+                  .map((m) => ({ value: `legacy:${m.id}`, label: `${m.name} v${m.version}` }));
                 return (
-                  <Form.Item
-                    label="MCP"
-                    name="dependency_id"
-                    rules={[{ required: true }]}
-                    extra={fabPending ? t("versionDetail.pickFabFirstHint") : undefined}
-                  >
-                    <Select
-                      options={mcpOptions}
-                      placeholder={t("common.select")}
-                      showSearch
-                      optionFilterProp="label"
-                      disabled={fabPending}
-                    />
+                  <Form.Item label="MCP" name="dependency_id" rules={[{ required: true }]}>
+                    <Select options={mcpOptions} placeholder={t("common.select")} showSearch optionFilterProp="label" />
                   </Form.Item>
                 );
               }
 
-              const legacyOptions = fabPending
-                ? []
-                : (skillsQuery.data ?? [])
-                    .filter((s) => s.status === "available" && availableAt(new Set(s.fabs.map((f) => f.fab_id))))
-                    .map((s) => ({ value: `legacy:${s.id}`, label: `${s.name} v${s.version}` }));
+              const legacyOptions = (skillsQuery.data ?? [])
+                .filter((s) => s.status === "available" && availableAt(new Set(s.fabs.map((f) => f.fab_id))))
+                .map((s) => ({ value: `legacy:${s.id}`, label: `${s.name} v${s.version}` }));
               const registryOptions = (skillhubRegistryQuery.data?.items ?? []).map((i) => ({
                 value: `registry:${i.id}`,
                 label: `${i.name}${i.version ? ` v${i.version}` : ""}`,

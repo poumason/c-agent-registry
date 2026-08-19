@@ -18,3 +18,5 @@
 | 0010 | [`9445703`](0010-registry-sync.md) | 2026-08-10 | 新增 Registry 分類（Skill/MCP/Model）+ 同步機制，agent version 依賴選單改為只列可用項目 |
 | 0011 | [`244d2fd`](0011-fab-scoped-dependency-validation.md) | 2026-08-17 | Agent version 依賴的同廠區（fab）強制驗證：新增依賴/變更部署廠區都要通過覆蓋檢查 |
 | 0012 | [`da65993`](0012-fab-scoped-agent-dependencies.md) | 2026-08-18 | Agent Dependency 的 fab 級別分流：同一個 version 能對不同 fab 用不同 skill/mcp |
+| 0013 | [`尚未 commit`](0013-remove-active-version-cap.md) | 2026-08-19 | 拿掉「同一 agent 最多 2 個 active 版本」的上限 |
+| 0014 | [`尚未 commit`](0014-per-fab-tabs-in-version-detail.md) | 2026-08-19 | Version Detail 頁面：部署 URL／依賴／Agent Card 改成 per-fab tabs |

@@ -28,17 +28,6 @@ async def next_version_number(db: AsyncSession, agent_id: uuid.UUID) -> int:
     return (current_max or 0) + 1
 
 
-async def count_active(db: AsyncSession, agent_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count())
-        .select_from(AgentVersion)
-        .where(
-            AgentVersion.agent_id == agent_id, AgentVersion.status == VersionStatus.active
-        )
-    )
-    return int(result.scalar_one())
-
-
 async def create_version(
     db: AsyncSession,
     *,

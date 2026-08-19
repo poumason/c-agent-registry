@@ -14,9 +14,10 @@ draft --submit--> in_review --approve--> approved --activate--> active
 - 一個 `Agent` 可以有多個 `Agent_Version`（版本），版本的 PK 是字串 `slug`
   （`{agent.slug}-v{version}`），`version` 是遞增整數（`backend/app/crud/agent_version.py`
   `next_version_number`）。
-- **同一個 agent 最多 2 個 `active` 版本**（Claude.md 規格），在
-  `POST /versions/{slug}/activate` 裡用 `count_active()` 檔在資料庫層之前擋掉
-  （`backend/app/api/v1/endpoints/agent_versions.py`，常數 `MAX_ACTIVE_VERSIONS_PER_AGENT = 2`）。
+- 一個 agent 能同時有幾個 `active` 版本沒有上限（2026-08-19 規則變更前是最多 2 個）——一個
+  fab 可能同時被不只一個 active 版本服務，`POST /versions/{slug}/activate`
+  （`backend/app/api/v1/endpoints/agent_versions.py`）只檢查來源版本是 `approved`，不再檢查
+  agent 目前已有幾個 active 版本。
 - 只有 `draft` 狀態的版本能改參數（`PATCH /versions/{slug}`）跟改依賴
   （`POST`/`DELETE /versions/{slug}/dependencies`）——送審之後就鎖住，避免審核中途改東西。
 - `Agent` 本身（name/description/provider/visibility）用 `PATCH /agents/{slug}` 改，跟版本的

@@ -24,8 +24,6 @@ from app.services.storage import presigned_download_url
 router = APIRouter(tags=["agent-versions"])
 settings = get_settings()
 
-MAX_ACTIVE_VERSIONS_PER_AGENT = 2
-
 
 @router.post(
     "/agents/{slug}/versions",
@@ -117,12 +115,8 @@ async def activate_version(
             status_code=status.HTTP_409_CONFLICT,
             detail="Only approved versions can be activated",
         )
-    active_count = await version_crud.count_active(db, agent.id)
-    if active_count >= MAX_ACTIVE_VERSIONS_PER_AGENT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Agent already has {MAX_ACTIVE_VERSIONS_PER_AGENT} active versions",
-        )
+    # No cap on how many versions of an agent can be active at once (2026-08-19
+    # rule change) — a fab may be served by more than one active version.
     agent_version.status = VersionStatus.active
     agent_version.updated_by = current_user.id
     agent_version = await version_crud.save(db, agent_version)
