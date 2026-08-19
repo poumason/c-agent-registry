@@ -1,6 +1,6 @@
 # 0014 — Version Detail 頁面：Fab 相關設定改成 per-fab tabs
 
-**Commit**: _(尚未 commit)_ · 2026-08-19
+**Commit**: `696c60d` · 2026-08-19
 
 ## 做了什麼
 
