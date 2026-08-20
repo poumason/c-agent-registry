@@ -10,3 +10,4 @@
 - [sso.md](sso.md) — SSO（OIDC）登入設計
 - [frontend-plan.md](frontend-plan.md) — 前端技術選型、路由/畫面對應、認證流程、RWD 設計、已知限制
 - [history/](history/) — 每次重要 commit 的修改摘要與決策脈絡
+- [patterns/](patterns/) — 抽象出來、可以套用到其他專案的設計模式
