@@ -52,25 +52,25 @@ API（純前端 SPA，不是後端渲染）。技術選型細節、目錄結構�
 
 前端目前是純本機開發（`npm run dev`），還沒有加進 docker-compose。
 
-## 資料模型與原始 ERD 的差異
+## 資料模型的歷史脈絡
 
-`idea.drawio` 的 ERD 是這個系統的起點，但有些欄位/型別是圖上沒畫、實作時必須補上的：
+`idea.drawio` 的 ERD 已經同步成跟 `backend/app/models/*.py` 完全一致（每個欄位都標了型別/長度/
+nullable，見 ERD 分頁最上方的圖例），不會再有「圖上沒畫但程式碼裡有」的落差。這裡記錄幾個當初從
+原始規格落地成現在的欄位時，為什麼長成這樣的決策脈絡（ERD 圖本身看得到欄位，但看不到「為什麼」）：
 
 - **所有 PK 用 UUID**，除了 `Agent_Version.slug`（字串 PK，格式 `{agent.slug}-v{version}`，例如
-  `image-classifier-v3`）—— ERD 上這張表的 PK 本來就標示 `slug` 而不是 `id`。
-- `Agent.slug`：ERD 只有 `id`，但需要一個 URL-safe 的唯一識別碼，所以加了 `slug`（unique）。
-- `created_at` / `updated_at`：補在 ERD 上沒畫出時間戳記的表（`User`、`Agent`、`User_Agent_Rel`、
-  `Agent_Dependency`）——這是標準的稽核欄位，不算規格變更。
-- `Agent_Version.package_path`（nullable）：審核通過後產生的 zip 在 MinIO 裡的 object key。ERD
-  沒有對應欄位，但「產生 zip 檔案」這個規格需要有地方記錄它存在哪，所以加在這裡而不是另開一張表。
-- `Review.priorital` → 實作成 `priority: int`（型別是整數優先度）。判斷是原 ERD 的打字錯誤
-  （"priorital" 不是英文字），直接照 "priority" 的意思實作。
+  `image-classifier-v3`）——這張表的 PK 本來就是設計成 `slug` 而不是 `id`。
+- `Agent.slug`：URL-safe 的唯一識別碼（unique），跟 `id` 分開，給前端路由/連結用。
+- `Agent_Version.package_path`（nullable）：審核通過後產生的 zip 在 MinIO 裡的 object key，沒有
+  另外開一張表記錄。
+- `Review.priority`：型別是整數優先度；早期規格草稿裡這個欄位名稱有打字錯誤，落地時直接照
+  "priority" 的意思實作。
 - Enum 都用 Postgres native enum（`SQLAlchemy Enum`），完整列表見
   [roles-and-permissions.md](roles-and-permissions.md) 與 `backend/app/models/enums.py`。
-- **`AIModel`（table `ai_models`）**：ERD 上沒有這張表，是後來新增的第三個 registry 實體（跟
-  `Skill`/`MCP` 平行，代表可供 agent 使用的 LLM 模型清單）。類別命名成 `AIModel` 而不是 `Model`，
-  是為了不要跟 `app.models` package、Pydantic 的 `BaseModel` 撞名。`Skill`/`MCP`/`AIModel` 三張表
-  都加了 `status`（`available`/`unavailable`）+ `last_synced_at`，設計細節見
+- **`AIModel`（table `ai_models`）**：後來新增的第三個 registry 實體（跟 `Skill`/`MCP` 平行，代表
+  可供 agent 使用的 LLM 模型清單）。類別命名成 `AIModel` 而不是 `Model`，是為了不要跟
+  `app.models` package、Pydantic 的 `BaseModel` 撞名。`Skill`/`MCP`/`AIModel` 三張表都加了
+  `status`（`available`/`unavailable`）+ `last_synced_at`，設計細節見
   [registry-sync.md](registry-sync.md)。
 
 ## Agent_Dependency 的多型設計
