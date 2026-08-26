@@ -20,4 +20,4 @@
 | 0012 | [`da65993`](0012-fab-scoped-agent-dependencies.md) | 2026-08-18 | Agent Dependency 的 fab 級別分流：同一個 version 能對不同 fab 用不同 skill/mcp |
 | 0013 | [`696c60d`](0013-remove-active-version-cap.md) | 2026-08-19 | 拿掉「同一 agent 最多 2 個 active 版本」的上限 |
 | 0014 | [`696c60d`](0014-per-fab-tabs-in-version-detail.md) | 2026-08-19 | Version Detail 頁面：部署 URL／依賴／Agent Card 改成 per-fab tabs |
-| 0015 | [`尚未 commit`](0015-erd-column-types.md) | 2026-08-19 | ERD 補上每個欄位的型別/長度/nullable，順便修正兩處結構性落差 |
+| 0015 | [`35f5d99`](0015-erd-column-types.md) | 2026-08-19 | ERD 補上每個欄位的型別/長度/nullable，順便修正兩處結構性落差 |
